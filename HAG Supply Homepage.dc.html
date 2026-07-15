@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#eeece6;font-family:'Inter',system-ui,sans-serif}
+a{color:inherit}
+</style>
+</helmet>
+<div style="--bg:oklch(99% 0.002 90);--bg-alt:oklch(96.5% 0.004 85);--text:oklch(19% 0.008 80);--text-2:oklch(46% 0.01 80);--text-3:oklch(62% 0.01 80);--border:oklch(89% 0.006 85);--footer-bg:oklch(15% 0.006 260);--accent:oklch(52% 0.17 250);--accent-dark:oklch(40% 0.15 250);--accent-soft:oklch(94% 0.02 250);--sale:oklch(55% 0.18 25);--star:oklch(75% 0.14 85);font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);width:1440px;margin:0 auto">
+
+<!-- HEADER -->
+<div style="height:92px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:36px;padding:0 48px">
+  <img src="uploads/hag-color.svg" alt="HAG Supply" style="height:38px;width:auto;flex:none">
+  <div style="flex:1;max-width:660px;height:46px;border:1.5px solid var(--border);border-radius:8px;display:flex;align-items:center;background:var(--bg-alt);overflow:hidden">
+    <div style="display:flex;align-items:center;gap:6px;padding:0 16px;height:100%;border-right:1px solid var(--border);color:var(--text-2);font-size:13px;font-weight:500;flex:none;white-space:nowrap">All Categories <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><polyline points="4,7 10,13 16,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"></polyline></svg></div>
+    <input placeholder="Search products, brands, and categories" style="flex:1;border:none;outline:none;background:transparent;font:400 14px 'Inter',sans-serif;color:var(--text);padding:0 16px">
+    <button style="flex:none;height:100%;width:56px;border:none;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6.5" stroke="currentColor" stroke-width="1.6"></circle><line x1="14" y1="14" x2="18.5" y2="18.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></line></svg>
+    </button>
+  </div>
+  <div style="flex:none;display:flex;gap:28px;margin-left:auto">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text);cursor:pointer">
+      <svg width="20" height="20" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="7.5" r="3.5" stroke="currentColor" stroke-width="1.6"></circle><path d="M4 19c0-4 3.5-6.5 7-6.5s7 2.5 7 6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"></path></svg>
+      <span style="font-size:11px;font-weight:500">Account</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text);cursor:pointer">
+      <span style="font-size:20px;line-height:1;color:var(--text)">&#9825;</span>
+      <span style="font-size:11px;font-weight:500">Favorites</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--text);cursor:pointer;position:relative">
+      <svg width="20" height="20" viewBox="0 0 22 22" fill="none"><rect x="4" y="7" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.6"></rect><line x1="7.5" y1="7" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></line><line x1="14.5" y1="7" x2="14.5" y2="4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></line><circle cx="8" cy="19" r="1.3" fill="currentColor"></circle><circle cx="14" cy="19" r="1.3" fill="currentColor"></circle></svg>
+      <span style="position:absolute;top:-6px;right:-8px;background:var(--accent);color:#fff;font-size:9px;font-weight:700;border-radius:9px;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px">3</span>
+      <span style="font-size:11px;font-weight:500">Cart</span>
+    </div>
+  </div>
+</div>
+
+<!-- CATEGORY NAV -->
+<div style="height:46px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:30px;padding:0 48px;font-size:14px;font-weight:500;color:var(--text)">
+  <span>Pantry &amp; Grocery</span>
+  <span>Cleaning Supplies</span>
+  <span>Home &amp; Décor</span>
+  <span>Tools &amp; Hardware</span>
+  <span>Patio &amp; Garden</span>
+  <span style="color:var(--accent-dark);font-weight:700">Deals &amp; Offers</span>
+</div>
+
+<!-- HERO -->
+<div style="display:grid;grid-template-columns:1fr 1fr;background:var(--bg-alt)">
+  <div style="padding:76px 64px;display:flex;flex-direction:column;justify-content:center;gap:20px">
+    <span style="text-transform:uppercase;letter-spacing:0.08em;font-size:12px;font-weight:700;color:var(--accent-dark)">Trusted by households &amp; businesses nationwide</span>
+    <h1 style="margin:0;font-size:52px;line-height:1.08;font-weight:800;color:var(--text);max-width:560px">Everything your home needs, delivered fast.</h1>
+    <p style="margin:0;font-size:17px;line-height:1.6;color:var(--text-2);max-width:460px">Pantry staples, cleaning supplies, tools, décor and outdoor gear — one reliable source, thousands of products in stock.</p>
+    <div style="display:flex;gap:14px;margin-top:12px">
+      <button style="background:var(--accent);color:#fff;border:none;padding:15px 30px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">Shop Now</button>
+      <button style="background:transparent;color:var(--text);border:1.5px solid var(--border);padding:15px 30px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">Browse Categories</button>
+    </div>
+  </div>
+  <div style="background:repeating-linear-gradient(45deg, var(--border), var(--border) 12px, var(--bg-alt) 12px, var(--bg-alt) 24px);display:flex;align-items:center;justify-content:center;min-height:520px">
+    <span style="font:13px ui-monospace,Menlo,monospace;color:var(--text-2);background:var(--bg);padding:8px 14px;border-radius:6px;border:1px solid var(--border)">lifestyle photo — home, tools &amp; garden essentials</span>
+  </div>
+</div>
+
+<!-- CATEGORIES -->
+<div style="padding:64px 48px;background:var(--bg)">
+  <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:28px">
+    <h2 style="margin:0;font-size:26px;font-weight:700;color:var(--text)">Shop by Category</h2>
+    <span style="font-size:14px;font-weight:600;color:var(--accent-dark);cursor:pointer">View all categories &rarr;</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:20px">
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer">
+      <div style="height:120px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);display:flex;align-items:center;justify-content:center">
+        <span style="font:10px ui-monospace,monospace;color:var(--text-3)">photo</span>
+      </div>
+      <div style="padding:14px 12px;font-size:14px;font-weight:600;color:var(--text);text-align:center">Pantry &amp; Grocery</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer">
+      <div style="height:120px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);display:flex;align-items:center;justify-content:center">
+        <span style="font:10px ui-monospace,monospace;color:var(--text-3)">photo</span>
+      </div>
+      <div style="padding:14px 12px;font-size:14px;font-weight:600;color:var(--text);text-align:center">Cleaning Supplies</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer">
+      <div style="height:120px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);display:flex;align-items:center;justify-content:center">
+        <span style="font:10px ui-monospace,monospace;color:var(--text-3)">photo</span>
+      </div>
+      <div style="padding:14px 12px;font-size:14px;font-weight:600;color:var(--text);text-align:center">Home &amp; Décor</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer">
+      <div style="height:120px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);display:flex;align-items:center;justify-content:center">
+        <span style="font:10px ui-monospace,monospace;color:var(--text-3)">photo</span>
+      </div>
+      <div style="padding:14px 12px;font-size:14px;font-weight:600;color:var(--text);text-align:center">Tools &amp; Hardware</div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer">
+      <div style="height:120px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);display:flex;align-items:center;justify-content:center">
+        <span style="font:10px ui-monospace,monospace;color:var(--text-3)">photo</span>
+      </div>
+      <div style="padding:14px 12px;font-size:14px;font-weight:600;color:var(--text);text-align:center">Patio &amp; Garden</div>
+    </div>
+    <div style="border:1.5px solid var(--accent);border-radius:10px;overflow:hidden;cursor:pointer">
+      <div style="height:120px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center">
+        <span style="font:10px ui-monospace,monospace;color:var(--accent-dark)">photo</span>
+      </div>
+      <div style="padding:14px 12px;font-size:14px;font-weight:700;color:var(--accent-dark);text-align:center">Deals &amp; Offers</div>
+    </div>
+  </div>
+</div>
+
+<!-- FEATURED PRODUCTS -->
+<div style="padding:64px 48px;background:var(--bg-alt)">
+  <div style="margin-bottom:28px">
+    <h2 style="margin:0 0 6px;font-size:26px;font-weight:700;color:var(--text)">Featured Products</h2>
+    <p style="margin:0;font-size:15px;color:var(--text-2)">Popular picks across the store, restocked weekly.</p>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:18px">
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative">
+      <span style="position:absolute;top:22px;left:22px;background:var(--sale);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px">SALE</span>
+      <div style="height:150px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);border-radius:8px"></div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.3">All-Purpose Cleaner, 32 oz</div>
+      <div style="font-size:12px;color:var(--star)">&#9733;&#9733;&#9733;&#9733;<span style="color:var(--border)">&#9733;</span> <span style="color:var(--text-3)">(214)</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:17px;font-weight:700;color:var(--text)">$6.49</span><span style="font-size:13px;color:var(--text-3);text-decoration:line-through">$8.99</span></div>
+      <button style="margin-top:4px;background:var(--accent);color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add to Cart</button>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative">
+      <span style="position:absolute;top:22px;left:22px;background:var(--accent-dark);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px">BEST SELLER</span>
+      <div style="height:150px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);border-radius:8px"></div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.3">20V Cordless Drill Driver Kit</div>
+      <div style="font-size:12px;color:var(--star)">&#9733;&#9733;&#9733;&#9733;&#9733; <span style="color:var(--text-3)">(1,042)</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:17px;font-weight:700;color:var(--text)">$79.00</span></div>
+      <button style="margin-top:4px;background:var(--accent);color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add to Cart</button>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative">
+      <div style="height:150px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);border-radius:8px"></div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.3">Microfiber Cleaning Cloths, 12-Pack</div>
+      <div style="font-size:12px;color:var(--star)">&#9733;&#9733;&#9733;&#9733;<span style="color:var(--border)">&#9733;</span> <span style="color:var(--text-3)">(587)</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:17px;font-weight:700;color:var(--text)">$12.99</span></div>
+      <button style="margin-top:4px;background:var(--accent);color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add to Cart</button>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative">
+      <span style="position:absolute;top:22px;left:22px;background:var(--sale);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px">SALE</span>
+      <div style="height:150px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);border-radius:8px"></div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.3">Raised Garden Bed Planter Box</div>
+      <div style="font-size:12px;color:var(--star)">&#9733;&#9733;&#9733;&#9733;&#9733; <span style="color:var(--text-3)">(96)</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:17px;font-weight:700;color:var(--text)">$64.99</span><span style="font-size:13px;color:var(--text-3);text-decoration:line-through">$89.99</span></div>
+      <button style="margin-top:4px;background:var(--accent);color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add to Cart</button>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative">
+      <div style="height:150px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);border-radius:8px"></div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.3">Storage Bins with Lids, Set of 6</div>
+      <div style="font-size:12px;color:var(--star)">&#9733;&#9733;&#9733;&#9733;<span style="color:var(--border)">&#9733;</span> <span style="color:var(--text-3)">(328)</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:17px;font-weight:700;color:var(--text)">$34.99</span></div>
+      <button style="margin-top:4px;background:var(--accent);color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add to Cart</button>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative">
+      <span style="position:absolute;top:22px;left:22px;background:var(--accent-dark);color:#fff;font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px">NEW</span>
+      <div style="height:150px;background:repeating-linear-gradient(45deg, var(--border), var(--border) 8px, var(--bg-alt) 8px, var(--bg-alt) 16px);border-radius:8px"></div>
+      <div style="font-size:14px;font-weight:600;color:var(--text);line-height:1.3">Indoor/Outdoor Patio Broom</div>
+      <div style="font-size:12px;color:var(--star)">&#9733;&#9733;&#9733;&#9733;<span style="color:var(--border)">&#9733;</span> <span style="color:var(--text-3)">(41)</span></div>
+      <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:17px;font-weight:700;color:var(--text)">$18.49</span></div>
+      <button style="margin-top:4px;background:var(--accent);color:#fff;border:none;padding:10px;border-radius:7px;font-size:13px;font-weight:600;cursor:pointer">Add to Cart</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- BENEFITS -->
+<div style="padding:52px 48px;background:var(--bg);display:flex;justify-content:space-between;gap:24px;border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+  <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;max-width:200px">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="2" y="7" width="14" height="9" rx="1.5" stroke="var(--accent-dark)" stroke-width="1.6"></rect><path d="M16 10h3l3 3v3h-6z" stroke="var(--accent-dark)" stroke-width="1.6"></path><circle cx="7" cy="18" r="1.6" fill="var(--accent-dark)"></circle><circle cx="18" cy="18" r="1.6" fill="var(--accent-dark)"></circle></svg></div>
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Fast Shipping</div>
+    <div style="font-size:12.5px;color:var(--text-2);line-height:1.5">Most orders arrive in 2–4 business days.</div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;max-width:200px">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" stroke="var(--accent-dark)" stroke-width="1.6" fill="none"></path></svg></div>
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Everything for Your Home</div>
+    <div style="font-size:12.5px;color:var(--text-2);line-height:1.5">One store for pantry, cleaning, tools &amp; more.</div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;max-width:200px">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="1.5" stroke="var(--accent-dark)" stroke-width="1.6"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3" stroke="var(--accent-dark)" stroke-width="1.6" fill="none"></path></svg></div>
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Secure Checkout</div>
+    <div style="font-size:12.5px;color:var(--text-2);line-height:1.5">Encrypted payments, every order protected.</div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;max-width:200px">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="var(--accent-dark)" stroke-width="1.6"></rect><line x1="3" y1="9" x2="21" y2="9" stroke="var(--accent-dark)" stroke-width="1.6"></line><line x1="7" y1="14" x2="11" y2="14" stroke="var(--accent-dark)" stroke-width="1.6"></line></svg></div>
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Weekly Deals</div>
+    <div style="font-size:12.5px;color:var(--text-2);line-height:1.5">New savings on essentials every week.</div>
+  </div>
+  <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;max-width:200px">
+    <div style="width:52px;height:52px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center"><svg width="24" height="24" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="var(--accent-dark)" stroke-width="1.6"></circle><path d="M9 10a3 3 0 1 1 4 2.8V14" stroke="var(--accent-dark)" stroke-width="1.6" fill="none" stroke-linecap="round"></path><circle cx="13" cy="17" r="0.9" fill="var(--accent-dark)"></circle></svg></div>
+    <div style="font-size:14px;font-weight:700;color:var(--text)">Customer Support</div>
+    <div style="font-size:12.5px;color:var(--text-2);line-height:1.5">Real people, ready to help 7 days a week.</div>
+  </div>
+</div>
+
+<!-- PROMO BLOCK -->
+<div style="display:grid;grid-template-columns:1.1fr 1fr;background:var(--accent-dark);color:#fff">
+  <div style="padding:64px;display:flex;flex-direction:column;justify-content:center;gap:16px">
+    <span style="text-transform:uppercase;letter-spacing:0.08em;font-size:12px;font-weight:700;color:rgba(255,255,255,0.75)">Seasonal Savings Event</span>
+    <h2 style="margin:0;font-size:38px;font-weight:800;line-height:1.15;max-width:480px">Everything for Your Home, in One Place</h2>
+    <p style="margin:0;font-size:15.5px;line-height:1.6;color:rgba(255,255,255,0.85);max-width:440px">Save on top categories this month — from patio essentials to power tools.</p>
+    <button style="margin-top:8px;align-self:flex-start;background:#fff;color:var(--accent-dark);border:none;padding:14px 28px;border-radius:8px;font-size:15px;font-weight:700;cursor:pointer">Shop Now</button>
+  </div>
+  <div style="background:repeating-linear-gradient(45deg, rgba(255,255,255,0.08), rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.02) 12px, rgba(255,255,255,0.02) 24px);display:flex;align-items:center;justify-content:center;min-height:360px">
+    <span style="font:12px ui-monospace,Menlo,monospace;color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.3);padding:8px 14px;border-radius:6px">seasonal offer photo</span>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div style="background:var(--footer-bg);color:rgba(255,255,255,0.7);padding:56px 48px 28px">
+  <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr 1.3fr;gap:32px;padding-bottom:40px;border-bottom:1px solid rgba(255,255,255,0.12)">
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin-bottom:16px">Categories</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px">
+        <span>Pantry &amp; Grocery</span><span>Cleaning Supplies</span><span>Home &amp; Décor</span><span>Tools &amp; Hardware</span><span>Patio &amp; Garden</span><span>Deals &amp; Offers</span>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin-bottom:16px">Help</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px">
+        <span>Track Your Order</span><span>Shipping Info</span><span>Returns &amp; Exchanges</span><span>FAQs</span>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin-bottom:16px">Policies</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px">
+        <span>Privacy Policy</span><span>Terms of Service</span><span>Accessibility</span>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin-bottom:16px">Contact</div>
+      <div style="display:flex;flex-direction:column;gap:11px;font-size:14px">
+        <span>1-800-555-0134</span><span>support@hagsupply.com</span><span>Mon–Fri, 8am–7pm ET</span>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin-bottom:16px">Newsletter</div>
+      <div style="font-size:13.5px;margin-bottom:14px;line-height:1.5">Get weekly deals and new arrivals in your inbox.</div>
+      <div style="display:flex;border:1px solid rgba(255,255,255,0.25);border-radius:7px;overflow:hidden">
+        <input placeholder="Email address" style="flex:1;border:none;background:transparent;color:#fff;padding:11px 12px;font-size:13px;outline:none">
+        <button style="background:var(--accent);color:#fff;border:none;padding:0 16px;font-size:13px;font-weight:700;cursor:pointer">Sign Up</button>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding-top:24px">
+    <div style="display:flex;align-items:center;gap:14px">
+      <img src="uploads/hag-blanco.svg" alt="HAG Supply" style="height:22px;width:auto;opacity:0.9">
+      <span style="font-size:12.5px;color:rgba(255,255,255,0.45)">&copy; 2026 HAG Supply — A Division of HAG Partner LLC</span>
+    </div>
+    <div style="display:flex;gap:10px">
+      <div style="width:30px;height:30px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">f</div>
+      <div style="width:30px;height:30px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">ig</div>
+      <div style="width:30px;height:30px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">in</div>
+      <div style="width:30px;height:30px;border-radius:50%;border:1px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">x</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+</body>
+</html>
