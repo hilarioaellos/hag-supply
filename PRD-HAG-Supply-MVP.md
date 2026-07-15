@@ -91,7 +91,10 @@ Este documento define el alcance del **MVP**: la versión mínima que permite op
 - **Responsive:** el sitio debe funcionar correctamente en escritorio y móvil (el diseño de referencia está en formato desktop fijo de 1440px; se requiere adaptar a mobile-first o al menos breakpoints razonables).
 - **Rendimiento:** tiempos de carga aceptables para catálogo con volumen bajo-medio de productos (no se esperan picos masivos de tráfico en el MVP).
 - **Disponibilidad:** sin requisito de alta disponibilidad crítica en el MVP (no es infraestructura de misión crítica todavía).
-- **Stack técnico:** agnóstico — la decisión de framework, lenguaje y base de datos queda abierta para el momento de construcción con Claude Code.
+- **Hosting:** Railway.
+- **Base de datos:** PostgreSQL (desplegada como servicio administrado dentro de Railway). Elegida sobre MySQL y Convex por: integridad referencial fuerte para pedidos/pagos, soporte nativo de `JSONB` para atributos de producto variables, búsqueda de texto integrada útil para el buscador del header, y por ser el default mejor soportado por los ORMs modernos (Prisma/Drizzle en Node, Django ORM en Python) que probablemente use Claude Code al construir. Convex se descartó por no encajar con el hosting ya definido en Railway (Convex Cloud es una plataforma separada; self-hostear Convex sobre Railway añade una carga operativa que no se justifica sin requisitos de tiempo real, que este MVP no tiene) y por ser un cambio de arquitectura completo, no solo de motor de base de datos.
+- **Costo de base de datos:** Postgres se factura como parte del consumo de recursos del plan de Railway (CPU/RAM/almacenamiento/red), no como cargo aparte. Para el volumen esperado de un MVP recién lanzado, el consumo estimado es bajo (pocos dólares al mes), a confirmar directamente en el dashboard de Railway una vez en producción — esta cifra no se puede fijar con certeza de antemano.
+- **Framework/lenguaje de aplicación:** aún agnóstico — queda abierto para el momento de construcción con Claude Code.
 
 ## 7. Métricas de éxito del MVP
 
@@ -103,14 +106,4 @@ Este documento define el alcance del **MVP**: la versión mínima que permite op
 
 ## 8. Riesgos y supuestos
 
-- **Supuesto:** el volumen inicial de productos y pedidos es bajo-medio; no se ha definido un número estimado de SKUs — recomendable definirlo antes de diseñar el modelo de datos del catálogo.
-- **Supuesto:** al no haber presupuesto ni plazo definidos en esta conversación, no se puede priorizar entre "rápido y simple" vs. "más robusto"; esto queda como decisión abierta.
-- **Riesgo:** el diseño de referencia está en inglés y USD; si el mercado real cambia a español/otra moneda antes del lanzamiento, hay retrabajo de contenido (no solo de código).
-- **Riesgo:** la logística propia (sin courier externo) puede no escalar si el volumen de pedidos crece rápido — aceptable para MVP, a revisar en Fase 2.
-
-## 9. Decisiones pendientes (marcadas explícitamente, no asumidas)
-
-El diseño visual (`HAG Supply Homepage.dc.html`) incluye elementos que **no fueron confirmados** como funcionalidades del MVP durante la definición de alcance. Antes de construir, decide si quedan dentro o fuera:
-
-1. **Favoritos/Wishlist:** el header muestra un ícono de "Favorites". ¿Debe ser funcional en el MVP o solo un placeholder visual para fase futura?
-2. **Reseñas y calificaciones:** las tarjetas de producto muestran estrellas y número de 
+- **Supuesto:** el volumen inicial de productos y pedidos es bajo-medio

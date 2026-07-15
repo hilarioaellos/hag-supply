@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  /* HAG Supply Design Tokens */
+  --color-hag-bg:          oklch(99% 0.002 90);
+  --color-hag-bg-alt:      oklch(96.5% 0.004 85);
+  --color-hag-text:        oklch(19% 0.008 80);
+  --color-hag-text-2:      oklch(46% 0.01 80);
+  --color-hag-text-3:      oklch(62% 0.01 80);
+  --color-hag-border:      oklch(89% 0.006 85);
+  --color-hag-footer:      oklch(15% 0.006 260);
+  --color-hag-accent:      oklch(52% 0.17 250);
+  --color-hag-accent-dark: oklch(40% 0.15 250);
+  --color-hag-accent-soft: oklch(94% 0.02 250);
+  --color-hag-sale:        oklch(55% 0.18 25);
+  --color-hag-star:        oklch(75% 0.14 85);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-hag-bg);
+  color: var(--color-hag-text);
+  font-family: var(--font-sans);
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
