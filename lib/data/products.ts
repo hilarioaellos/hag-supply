@@ -99,6 +99,92 @@ export const getProduct = cache(async (slug: string) => {
   };
 });
 
+export const searchProducts = cache(
+  async (
+    q: string,
+    { page = 1, category }: { page?: number; category?: string }
+  ) => {
+    const where: Prisma.ProductWhereInput = {
+      deletedAt: null,
+      OR: [
+        { name: { contains: q, mode: "insensitive" } },
+        { description: { contains: q, mode: "insensitive" } },
+      ],
+      ...(category ? { category: { slug: category } } : {}),
+    };
+
+    const [total, products] = await Promise.all([
+      db.product.count({ where }),
+      db.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          price: true,
+          comparePrice: true,
+          imageUrls: true,
+          badge: true,
+          stock: true,
+        },
+        orderBy: { badge: "desc" },
+        skip: (page - 1) * PER_PAGE,
+        take: PER_PAGE,
+      }),
+    ]);
+
+    return {
+      products: products.map((p) => ({
+        ...p,
+        price: p.price.toString(),
+        comparePrice: p.comparePrice?.toString() ?? null,
+      })),
+      total,
+      totalPages: Math.ceil(total / PER_PAGE),
+      page,
+    };
+  }
+);
+
+export const getDealsProducts = cache(async (page = 1) => {
+  const where: Prisma.ProductWhereInput = {
+    deletedAt: null,
+    badge: ProductBadge.SALE,
+    comparePrice: { not: null },
+  };
+
+  const [total, products] = await Promise.all([
+    db.product.count({ where }),
+    db.product.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        price: true,
+        comparePrice: true,
+        imageUrls: true,
+        badge: true,
+        stock: true,
+      },
+      orderBy: { comparePrice: "desc" },
+      skip: (page - 1) * PER_PAGE,
+      take: PER_PAGE,
+    }),
+  ]);
+
+  return {
+    products: products.map((p) => ({
+      ...p,
+      price: p.price.toString(),
+      comparePrice: p.comparePrice?.toString() ?? null,
+    })),
+    total,
+    totalPages: Math.ceil(total / PER_PAGE),
+    page,
+  };
+});
+
 export const getRelatedProducts = cache(
   async (categorySlug: string, excludeSlug: string) => {
     try {
