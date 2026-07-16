@@ -9,6 +9,8 @@ const categories = [
   { name: "Tools and Hardware", slug: "tools-and-hardware" },
   { name: "Patio and Garden", slug: "patio-and-garden" },
   { name: "Pet Supplies", slug: "pet-supplies" },
+  { name: "General Merchandise", slug: "general-merchandise" },
+  { name: "Toys", slug: "toys" },
 ];
 
 async function main() {
