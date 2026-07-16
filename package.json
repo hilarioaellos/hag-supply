@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@prisma/client": "^5.22.0",
     "@stripe/stripe-js": "^9.10.0",
     "@types/bcryptjs": "^2.4.6",

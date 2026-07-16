@@ -126,7 +126,8 @@ export const getRelatedProducts = cache(
         price: p.price.toString(),
         comparePrice: p.comparePrice?.toString() ?? null,
       }));
-    } catch {
+    } catch (err) {
+      console.error("[getRelatedProducts] DB error:", err);
       return [];
     }
   }
