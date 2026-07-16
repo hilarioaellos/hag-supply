@@ -7,7 +7,8 @@ export const getCategories = cache(async () => {
       select: { name: true, slug: true, imageUrl: true },
       orderBy: { name: "asc" },
     });
-  } catch {
+  } catch (err) {
+    console.error("[getCategories] DB error:", err);
     return [];
   }
 });
