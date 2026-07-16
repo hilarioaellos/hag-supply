@@ -1,19 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import { db } from "@/lib/db";
+import { getCategories } from "@/lib/data/categories";
 import { SearchBar } from "./SearchBar";
 import { CartButton } from "./CartButton";
-
-async function getCategories() {
-  try {
-    return await db.category.findMany({
-      select: { name: true, slug: true },
-      orderBy: { name: "asc" },
-    });
-  } catch {
-    return [];
-  }
-}
 
 export async function Header() {
   const categories = await getCategories();

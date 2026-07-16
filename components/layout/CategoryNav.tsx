@@ -1,16 +1,5 @@
 import Link from "next/link";
-import { db } from "@/lib/db";
-
-async function getCategories() {
-  try {
-    return await db.category.findMany({
-      select: { name: true, slug: true },
-      orderBy: { name: "asc" },
-    });
-  } catch {
-    return [];
-  }
-}
+import { getCategories } from "@/lib/data/categories";
 
 export async function CategoryNav() {
   const categories = await getCategories();

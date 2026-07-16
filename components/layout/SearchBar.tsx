@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 interface SearchBarProps {
@@ -12,6 +12,18 @@ export function SearchBar({ categories }: SearchBarProps) {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -30,7 +42,7 @@ export function SearchBar({ categories }: SearchBarProps) {
       onSubmit={submit}
       className="flex-1 max-w-[660px] h-[46px] border-[1.5px] border-hag-border rounded-lg flex items-center bg-hag-bg-alt overflow-hidden"
     >
-      <div className="relative flex-none">
+      <div className="relative flex-none" ref={dropdownRef}>
         <button
           type="button"
           onClick={() => setDropdownOpen((o) => !o)}
