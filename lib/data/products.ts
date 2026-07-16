@@ -75,32 +75,28 @@ export const getCategoryProducts = cache(
 );
 
 export const getProduct = cache(async (slug: string) => {
-  try {
-    const p = await db.product.findUnique({
-      where: { slug, deletedAt: null },
-      select: {
-        id: true,
-        name: true,
-        slug: true,
-        description: true,
-        sku: true,
-        price: true,
-        comparePrice: true,
-        imageUrls: true,
-        badge: true,
-        stock: true,
-        category: { select: { name: true, slug: true } },
-      },
-    });
-    if (!p) return null;
-    return {
-      ...p,
-      price: p.price.toString(),
-      comparePrice: p.comparePrice?.toString() ?? null,
-    };
-  } catch {
-    return null;
-  }
+  const p = await db.product.findUnique({
+    where: { slug, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      sku: true,
+      price: true,
+      comparePrice: true,
+      imageUrls: true,
+      badge: true,
+      stock: true,
+      category: { select: { name: true, slug: true } },
+    },
+  });
+  if (!p) return null;
+  return {
+    ...p,
+    price: p.price.toString(),
+    comparePrice: p.comparePrice?.toString() ?? null,
+  };
 });
 
 export const getRelatedProducts = cache(

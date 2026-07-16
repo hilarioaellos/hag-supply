@@ -4,7 +4,6 @@ import Link from "next/link";
 import { getProduct, getRelatedProducts } from "@/lib/data/products";
 import { Badge } from "@/components/ui/Badge";
 import { ProductCard } from "@/components/product/ProductCard";
-import { AddToCartButton } from "@/components/product/AddToCartButton";
 import { QuantitySelector } from "./QuantitySelector";
 
 interface Props {

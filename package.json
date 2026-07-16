@@ -22,7 +22,7 @@
     "stripe": "^22.3.1"
   },
   "prisma": {
-    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts"
+    "seed": "node prisma/seed.js"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
