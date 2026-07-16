@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { getDealsProducts } from "@/lib/data/products";
 import { ProductCard } from "@/components/product/ProductCard";
 import { PageLinks } from "@/components/ui/PageLinks";
@@ -11,6 +12,11 @@ export default async function DealsPage({ searchParams }: Props) {
   const page = Math.max(1, Number(sp.page) || 1);
 
   const { products, total, totalPages } = await getDealsProducts(page);
+
+  // Redirect out-of-range pages to page 1
+  if (page > 1 && totalPages > 0 && page > totalPages) {
+    redirect("/deals");
+  }
 
   function buildHref(p: number) {
     return p > 1 ? `/deals?page=${p}` : "/deals";

@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
         badge: true,
         stock: true,
       },
-      orderBy: { badge: "desc" },
+      orderBy: [{ badge: "desc" }, { id: "asc" }],
       skip: (page - 1) * limit,
       take: limit,
     }),

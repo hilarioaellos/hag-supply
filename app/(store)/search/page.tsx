@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { searchProducts } from "@/lib/data/products";
 import { getCategories } from "@/lib/data/categories";
 import { ProductCard } from "@/components/product/ProductCard";
@@ -16,9 +17,19 @@ export default async function SearchPage({ searchParams }: Props) {
   const page = Math.max(1, Number(sp.page) || 1);
 
   const [{ products, total, totalPages }, categories] = await Promise.all([
-    q ? searchProducts(q, { page, category }) : Promise.resolve({ products: [], total: 0, totalPages: 0, page: 1 }),
+    q
+      ? searchProducts(q, { page, category })
+      : Promise.resolve({ products: [], total: 0, totalPages: 0, page: 1 }),
     getCategories(),
   ]);
+
+  // Redirect out-of-range pages to page 1 instead of showing inconsistent state
+  if (page > 1 && totalPages > 0 && page > totalPages) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (category) params.set("category", category);
+    redirect(`/search?${params.toString()}`);
+  }
 
   function buildHref(p: number) {
     const params = new URLSearchParams();
@@ -42,7 +53,9 @@ export default async function SearchPage({ searchParams }: Props) {
             <h1 className="text-[22px] font-bold text-hag-text">
               {total > 0 ? (
                 <>
-                  <span className="text-hag-text-2 font-normal">{total} result{total !== 1 ? "s" : ""} for </span>
+                  <span className="text-hag-text-2 font-normal">
+                    {total} result{total !== 1 ? "s" : ""} for{" "}
+                  </span>
                   &ldquo;{q}&rdquo;
                 </>
               ) : (
@@ -52,7 +65,10 @@ export default async function SearchPage({ searchParams }: Props) {
             {category && (
               <p className="text-[13px] text-hag-text-2 mt-1">
                 Filtered by category ·{" "}
-                <Link href={`/search?q=${encodeURIComponent(q)}`} className="text-hag-accent hover:underline">
+                <Link
+                  href={`/search?q=${encodeURIComponent(q)}`}
+                  className="text-hag-accent hover:underline"
+                >
                   Clear
                 </Link>
               </p>
@@ -61,7 +77,9 @@ export default async function SearchPage({ searchParams }: Props) {
         ) : (
           <div className="mb-7">
             <h1 className="text-[22px] font-bold text-hag-text">Search products</h1>
-            <p className="text-[14px] text-hag-text-2 mt-1">Type a term above to search across all categories.</p>
+            <p className="text-[14px] text-hag-text-2 mt-1">
+              Type a term above to search across all categories.
+            </p>
           </div>
         )}
 
