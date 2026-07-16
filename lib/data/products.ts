@@ -73,3 +73,65 @@ export const getCategoryProducts = cache(
     };
   }
 );
+
+export const getProduct = cache(async (slug: string) => {
+  try {
+    const p = await db.product.findUnique({
+      where: { slug, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        description: true,
+        sku: true,
+        price: true,
+        comparePrice: true,
+        imageUrls: true,
+        badge: true,
+        stock: true,
+        category: { select: { name: true, slug: true } },
+      },
+    });
+    if (!p) return null;
+    return {
+      ...p,
+      price: p.price.toString(),
+      comparePrice: p.comparePrice?.toString() ?? null,
+    };
+  } catch {
+    return null;
+  }
+});
+
+export const getRelatedProducts = cache(
+  async (categorySlug: string, excludeSlug: string) => {
+    try {
+      const products = await db.product.findMany({
+        where: {
+          deletedAt: null,
+          category: { slug: categorySlug },
+          NOT: { slug: excludeSlug },
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          price: true,
+          comparePrice: true,
+          imageUrls: true,
+          badge: true,
+          stock: true,
+        },
+        orderBy: { badge: "desc" },
+        take: 4,
+      });
+      return products.map((p) => ({
+        ...p,
+        price: p.price.toString(),
+        comparePrice: p.comparePrice?.toString() ?? null,
+      }));
+    } catch {
+      return [];
+    }
+  }
+);
