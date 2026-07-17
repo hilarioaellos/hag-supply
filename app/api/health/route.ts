@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   // Log all env vars available (hide values, show keys)
   const allKeys = Object.keys(process.env).sort();
