@@ -1,5 +1,5 @@
 import { getServerSession } from "next-auth";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -25,7 +25,7 @@ export default async function OrderConfirmationPage({
   const session = await getServerSession(authOptions);
 
   if (!session?.user) {
-    notFound();
+    redirect(`/login?redirect=/order-confirmation/${params.id}`);
   }
 
   const order = await db.order.findUnique({
