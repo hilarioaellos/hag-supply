@@ -47,11 +47,19 @@ export function CategoryForm({ category }: CategoryFormProps) {
     try {
       const parsed = new URL(url);
       const hostname = parsed.hostname;
-      const allowed = ["unsplash.com", "pexels.com"];
-      if (!allowed.some((domain) => hostname.endsWith(domain))) {
-        return `Image URL must be from unsplash.com or pexels.com`;
+      const pathname = parsed.pathname;
+
+      // images.unsplash.com/... (any path)
+      if (hostname === "images.unsplash.com") {
+        return null;
       }
-      return null;
+
+      // images.pexels.com/photos/... (must be /photos/)
+      if (hostname === "images.pexels.com" && pathname.startsWith("/photos/")) {
+        return null;
+      }
+
+      return `Image URL must be from images.unsplash.com or images.pexels.com/photos/`;
     } catch {
       return "Invalid image URL";
     }
@@ -145,10 +153,10 @@ export function CategoryForm({ category }: CategoryFormProps) {
             setFormData((prev) => ({ ...prev, imageUrl: e.target.value }))
           }
           className="w-full px-4 py-2 border border-hag-border rounded-lg focus:outline-none focus:ring-2 focus:ring-hag-accent"
-          placeholder="https://images.unsplash.com/... or https://images.pexels.com/..."
+          placeholder="https://images.unsplash.com/... or https://images.pexels.com/photos/..."
         />
         <p className="text-[12px] text-hag-text-2 mt-1">
-          Only unsplash.com and pexels.com domains allowed
+          Only images.unsplash.com or images.pexels.com/photos/
         </p>
       </div>
 
