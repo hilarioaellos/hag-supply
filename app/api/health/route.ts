@@ -36,10 +36,6 @@ export async function GET() {
     nextauthUrl,
     dbStatus,
     dbError,
-    availableEnvKeys: allKeys.filter(k =>
-      ["DATABASE", "NEXTAUTH", "POSTGRES", "PG", "NODE", "PORT"].some(prefix =>
-        k.startsWith(prefix)
-      )
-    ),
+    availableEnvKeys: allKeys,
   });
 }
