@@ -123,15 +123,13 @@ export default async function HomePage() {
           </div>
         </div>
         <div
-          className="flex items-center justify-center min-h-[520px]"
-          style={{
-            background:
-              "repeating-linear-gradient(45deg, var(--color-hag-border), var(--color-hag-border) 12px, var(--color-hag-bg-alt) 12px, var(--color-hag-bg-alt) 24px)",
-          }}
+          className="flex items-center justify-center min-h-[520px] relative overflow-hidden"
         >
-          <span className="font-mono text-[13px] text-hag-text-2 bg-hag-bg px-3.5 py-2 rounded-md border border-hag-border">
-            lifestyle photo — home, tools and garden essentials
-          </span>
+          <img
+            src="https://images.unsplash.com/photo-1601600576337-c1d8a0d1373c?w=1200&q=85"
+            alt="Tienda HAG Supply"
+            className="absolute inset-0 w-full h-full object-cover"
+          />
         </div>
       </section>
 
@@ -175,8 +173,12 @@ export default async function HomePage() {
             href="/deals"
             className="border-[1.5px] border-hag-accent rounded-[10px] overflow-hidden hover:shadow-md transition-shadow"
           >
-            <div className="h-[120px] bg-hag-accent-soft flex items-center justify-center">
-              <span className="font-mono text-[10px] text-hag-accent-dark">photo</span>
+            <div className="h-[120px] relative overflow-hidden">
+              <img
+                src="https://picsum.photos/200/120?random=101"
+                alt="Deals and Offers"
+                className="w-full h-full object-cover"
+              />
             </div>
             <div className="px-3 py-3.5 text-[14px] font-bold text-hag-accent-dark text-center">
               Deals and Offers
@@ -240,21 +242,19 @@ export default async function HomePage() {
           </p>
           <Link
             href="/deals"
-            className="mt-2 self-start px-7 py-3.5 rounded-lg bg-white text-hag-accent-dark text-[15px] font-bold hover:bg-white/90 transition-colors"
+            className="mt-2 self-start px-7 py-3.5 rounded-lg bg-hag-accent text-white text-[15px] font-bold hover:bg-hag-accent-dark transition-colors"
           >
             Shop Now
           </Link>
         </div>
         <div
-          className="flex items-center justify-center min-h-[360px]"
-          style={{
-            background:
-              "repeating-linear-gradient(45deg, rgba(255,255,255,0.08), rgba(255,255,255,0.08) 12px, rgba(255,255,255,0.02) 12px, rgba(255,255,255,0.02) 24px)",
-          }}
+          className="flex items-center justify-center min-h-[360px] relative overflow-hidden"
         >
-          <span className="font-mono text-[12px] text-white/70 border border-white/30 px-3.5 py-2 rounded-md">
-            seasonal offer photo
-          </span>
+          <img
+            src="https://images.unsplash.com/photo-1607083206869-4c7672e72a8a?w=900&q=85"
+            alt="Ofertas Especiales"
+            className="absolute inset-0 w-full h-full object-cover opacity-60"
+          />
         </div>
       </section>
     </div>
