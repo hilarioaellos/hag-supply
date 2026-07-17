@@ -1,12 +1,61 @@
 import { getServerSession } from "next-auth";
 import { notFound } from "next/navigation";
 import { authOptions } from "@/lib/auth";
+import { db } from "@/lib/db";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ProductsTable } from "@/components/admin/ProductsTable";
 
 interface PageProps {
   searchParams: Promise<{ q?: string; page?: string }>;
+}
+
+async function getProducts(page: number, q: string) {
+  const limit = 20;
+  const skip = (page - 1) * limit;
+
+  const [products, total] = await Promise.all([
+    db.product.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { sku: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        price: true,
+        stock: true,
+        badge: true,
+        deletedAt: true,
+        category: { select: { name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+    }),
+    db.product.count({
+      where: {
+        OR: [
+          { name: { contains: q, mode: "insensitive" } },
+          { sku: { contains: q, mode: "insensitive" } },
+        ],
+      },
+    }),
+  ]);
+
+  return {
+    items: products.map((p) => ({
+      ...p,
+      price: p.price.toString(),
+      deletedAt: p.deletedAt?.toISOString() || null,
+    })),
+    total,
+    page,
+    pages: Math.ceil(total / limit),
+  };
 }
 
 export default async function ProductsPage({ searchParams }: PageProps) {
@@ -20,17 +69,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
   const page = Math.max(1, parseInt(params.page || "1"));
   const q = params.q || "";
 
-  const res = await fetch(
-    `${process.env.NEXTAUTH_URL}/api/admin/products?page=${page}&q=${encodeURIComponent(q)}`,
-    { cache: "no-store" }
-  );
-
-  if (!res.ok) {
-    throw new Error("Failed to fetch products");
-  }
-
-  const data = await res.json();
-  const { items, total, pages } = data;
+  const { items, total, pages } = await getProducts(page, q);
 
   return (
     <div className="space-y-6">
@@ -42,23 +81,16 @@ export default async function ProductsPage({ searchParams }: PageProps) {
       </div>
 
       <div className="bg-white border border-hag-border rounded-2xl p-6">
-        <div className="mb-6">
+        <form action="/admin/products" method="get" className="mb-6">
           <input
             type="text"
+            name="q"
             placeholder="Search by name or SKU..."
             defaultValue={q}
             className="w-full px-4 py-2 border border-hag-border rounded-lg focus:outline-none focus:ring-2 focus:ring-hag-accent"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const query = (e.target as HTMLInputElement).value;
-                const url = new URL(window.location.href);
-                url.searchParams.set("q", query);
-                url.searchParams.set("page", "1");
-                window.location.href = url.toString();
-              }
-            }}
           />
-        </div>
+          <input type="hidden" name="page" value="1" />
+        </form>
 
         <ProductsTable products={items} />
 

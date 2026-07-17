@@ -61,7 +61,7 @@ export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
       ...(slug && { slug }),
       ...(description !== undefined && { description }),
       ...(sku !== undefined && { sku: sku || null }),
-      ...(price && { price: parseFloat(price) }),
+      ...(price !== undefined && { price: parseFloat(price) }),
       ...(comparePrice !== undefined && {
         comparePrice: comparePrice ? parseFloat(comparePrice) : null,
       }),

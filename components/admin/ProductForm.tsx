@@ -27,6 +27,7 @@ export function ProductForm({ product, categories }: ProductFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [slugModified, setSlugModified] = useState(!!product); // true if editing
 
   const [formData, setFormData] = useState({
     name: product?.name || "",
@@ -53,7 +54,8 @@ export function ProductForm({ product, categories }: ProductFormProps) {
     setFormData((prev) => ({
       ...prev,
       name,
-      slug: generateSlug(name),
+      // Solo auto-regenera slug si no fue editado manualmente (new product o slug no tocado)
+      slug: !slugModified ? generateSlug(name) : prev.slug,
     }));
   };
 
@@ -126,14 +128,15 @@ export function ProductForm({ product, categories }: ProductFormProps) {
 
       <div>
         <label className="block text-[14px] font-semibold text-hag-text mb-2">
-          Slug *
+          Slug * {slugModified && <span className="text-[12px] text-hag-text-2">(auto-generate disabled)</span>}
         </label>
         <input
           type="text"
           value={formData.slug}
-          onChange={(e) =>
-            setFormData((prev) => ({ ...prev, slug: e.target.value }))
-          }
+          onChange={(e) => {
+            setFormData((prev) => ({ ...prev, slug: e.target.value }));
+            setSlugModified(true);
+          }}
           required
           className="w-full px-4 py-2 border border-hag-border rounded-lg focus:outline-none focus:ring-2 focus:ring-hag-accent"
           placeholder="chefs-knife-8-inch"
