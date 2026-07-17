@@ -115,10 +115,10 @@ export function CategoriesTable({ categories }: { categories: Category[] }) {
                   </Link>
                   <button
                     onClick={() => handleDelete(cat.id, cat.productCount)}
-                    disabled={deleting === cat.id}
-                    className={`text-[12px] px-3 py-1 rounded transition-colors disabled:opacity-50 ${
+                    disabled={deleting === cat.id || cat.productCount > 0}
+                    className={`text-[12px] px-3 py-1 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                       cat.productCount > 0
-                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        ? "bg-gray-100 text-gray-400"
                         : "bg-red-100 hover:bg-red-200 text-red-800"
                     }`}
                   >
