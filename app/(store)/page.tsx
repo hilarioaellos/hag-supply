@@ -159,7 +159,7 @@ export default async function HomePage() {
                 }}
               >
                 {cat.imageUrl ? (
-                  <Image src={cat.imageUrl} alt={cat.name} fill className="object-cover" sizes="200px" />
+                  <Image src={cat.imageUrl} alt={cat.name} fill className="object-cover" sizes="(max-width: 768px) 100px, 200px" />
                 ) : (
                   <span className="font-mono text-[10px] text-hag-text-3">photo</span>
                 )}
