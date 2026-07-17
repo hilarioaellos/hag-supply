@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import Link from "next/link";
+import { OrderStatusSelect } from "@/components/admin/OrderStatusSelect";
+import { ConfirmPaymentButton } from "@/components/admin/ConfirmPaymentButton";
 
 export default async function OrderDetailPage({
   params,
@@ -154,11 +156,32 @@ export default async function OrderDetailPage({
         </div>
       )}
 
-      {/* Status Change — HAG-23 */}
-      <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
-        <p className="text-[14px] text-blue-800">
-          Status changes and confirm-payment available in HAG-23.
-        </p>
+      {/* Status Changes */}
+      <div className="bg-white border border-hag-border rounded-2xl p-6 space-y-4">
+        <div>
+          <h2 className="text-[16px] font-bold text-hag-text mb-3">Order Status</h2>
+          <OrderStatusSelect orderId={order.id} currentStatus={order.status as any} />
+        </div>
+
+        {/* Confirm Payment Manually */}
+        {order.status === "PENDING_PAYMENT" && order.stripePaymentIntentId && (
+          <ConfirmPaymentButton orderId={order.id} />
+        )}
+
+        {/* Stripe Payment Intent */}
+        {order.stripePaymentIntentId && (
+          <div className="pt-4 border-t border-hag-border">
+            <p className="text-[13px] text-hag-text-2 mb-2">Stripe Payment Intent:</p>
+            <a
+              href={`https://dashboard.stripe.com/test/payments/${order.stripePaymentIntentId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[13px] text-hag-accent hover:text-hag-accent-dark break-all"
+            >
+              {order.stripePaymentIntentId}
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );
