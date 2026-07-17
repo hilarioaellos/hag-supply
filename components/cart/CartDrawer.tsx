@@ -2,12 +2,14 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useCart } from "./CartProvider";
 import { CartItem } from "./CartItem";
 import { Button } from "@/components/ui/Button";
 
 export function CartDrawer() {
+  const router = useRouter();
   const { status } = useSession();
   const { items, drawerOpen, closeDrawer, refresh } = useCart();
 
@@ -26,8 +28,13 @@ export function CartDrawer() {
     .reduce((sum, i) => sum + parseFloat(i.product.price) * i.quantity, 0)
     .toFixed(2);
 
-  const checkoutHref =
-    status === "authenticated" ? "/checkout" : "/login?redirect=/checkout";
+  const handleCheckoutClick = () => {
+    if (status === "authenticated") {
+      router.push("/checkout");
+    } else if (status === "unauthenticated") {
+      router.push("/login?redirect=/checkout");
+    }
+  };
 
   return (
     <>
@@ -86,9 +93,16 @@ export function CartDrawer() {
               <span className="font-bold text-hag-text">${subtotal}</span>
             </div>
             <p className="text-[12px] text-hag-text-3">🚚 Free shipping on all orders</p>
-            <Link href={checkoutHref} onClick={closeDrawer} className="block">
-              <Button className="w-full">Proceed to Checkout</Button>
-            </Link>
+            <Button
+              className="w-full"
+              disabled={status === "loading"}
+              onClick={() => {
+                closeDrawer();
+                handleCheckoutClick();
+              }}
+            >
+              Proceed to Checkout
+            </Button>
             <Link
               href="/cart"
               onClick={closeDrawer}

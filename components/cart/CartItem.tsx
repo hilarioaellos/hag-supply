@@ -34,14 +34,19 @@ export function CartItem({ item, onLinkClick, onMutate }: Props) {
 
   async function updateQty(newQty: number) {
     if (newQty === qty || updating) return;
+    const prevQty = qty;
     setUpdating(true);
     setQty(newQty);
     try {
-      await fetch("/api/cart", {
+      const res = await fetch("/api/cart", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ productId: item.product.id, quantity: newQty }),
       });
+      if (!res.ok) {
+        setQty(prevQty);
+        return;
+      }
       await refresh();
       onMutate?.();
     } finally {
@@ -52,7 +57,8 @@ export function CartItem({ item, onLinkClick, onMutate }: Props) {
   async function removeItem() {
     setRemoving(true);
     try {
-      await fetch(`/api/cart?productId=${item.product.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/cart?productId=${item.product.id}`, { method: "DELETE" });
+      if (!res.ok) return;
       await refresh();
       onMutate?.();
     } finally {
