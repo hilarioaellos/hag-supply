@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAdmin } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { confirmOrder } from "@/lib/confirm-order";
-import { stripe } from "@/lib/stripe";
 
 export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
   const { params } = context as { params: { id: string } };
@@ -31,26 +30,8 @@ export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
     );
   }
 
-  // PASO 3: Consultar Stripe para verificar que el pago está confirmed
-  try {
-    const paymentIntent = await stripe.paymentIntents.retrieve(
-      order.stripePaymentIntentId
-    );
-
-    if (paymentIntent.status !== "succeeded") {
-      return NextResponse.json(
-        {
-          error: `Payment intent status is ${paymentIntent.status}, not succeeded`,
-        },
-        { status: 422 }
-      );
-    }
-  } catch (err) {
-    return NextResponse.json(
-      { error: "Failed to verify payment intent with Stripe" },
-      { status: 500 }
-    );
-  }
+  // TODO: PASO 3: Consultar Stripe para verificar que el pago está confirmed (HAG-16)
+  // Stripe integration will be added in HAG-16-19 (Checkout & Stripe phase)
 
   // PASO 4: Llamar confirmOrder() (función compartida)
   try {
