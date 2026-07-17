@@ -9,18 +9,19 @@
 
 ## Qué se construyó
 
-1. **lib/confirm-order.ts** — Función compartida (checkout + webhook + admin)
+1. **lib/confirm-order.ts** — Función atómica para confirmar órdenes
    - Transacción atómica con 4 pasos: status→PAYMENT_CONFIRMED, cargar items, decrementar stock, vaciar carrito
    - Manejo de errores: ALREADY_PROCESSED, OVERSELL
    - Retorna: `"confirmed" | "already_processed" | "oversell"`
+   - **Nota**: Implementada para HAG-23 admin. Será reutilizada en HAG-16 (checkout) y HAG-19 (webhook Stripe) después.
 
 2. **API routes**
    - PATCH `/api/admin/orders/[id]/status` — cambiar status con validación de transiciones
    - POST `/api/admin/orders/[id]/confirm-payment` — confirmar pago manualmente desde Stripe
 
 3. **UI**
-   - `/admin/orders/[id]/page.tsx` (actualizado) — dropdown status + botón confirm-payment + link Stripe
-   - OrderStatusSelect: dropdown con transiciones permitidas por estado
+   - `/admin/orders/[id]/page.tsx` (actualizado) — select status + botón confirm-payment + link Stripe
+   - OrderStatusSelect: select HTML con transiciones permitidas por estado
    - ConfirmPaymentButton: confirmar pago (verificar Stripe + llamar confirmOrder)
 
 ---
@@ -30,11 +31,11 @@
 ```
 tsc --noEmit                                    → PASS
 lib/confirm-order.ts transacción atómica       → 4 pasos, rollback si oversell
-PATCH /api/admin/orders/[id]/status            → transiciones permitidas
+PATCH /api/admin/orders/[id]/status            → transiciones permitidas, validadas
 POST /api/admin/orders/[id]/confirm-payment    → verifica PENDING_PAYMENT, Stripe, confirmOrder
-/admin/orders/[id] dropdown status             → visible, solo transiciones permitidas
+/admin/orders/[id] select status               → dropdown HTML, solo transiciones permitidas
 Confirm Payment button                         → visible solo si PENDING_PAYMENT + stripeId
-Stripe dashboard link                          → href a dashboard Stripe
+Stripe dashboard link                          → href a dashboard Stripe (test mode)
 ```
 
 ---
@@ -105,14 +106,15 @@ Otros estados (CANCELLED, OVERSELL_*, etc.) no tienen transiciones permitidas de
 
 ## Notas
 
-### Función compartida (confirm-order.ts)
+### Función confirmOrder() — Implementada para HAG-23, reutilizada en HAG-16/19
 
-Esta función es necesaria para:
-- HAG-23: Confirmar pago manual desde admin
+Esta función ejecuta la transacción atómica de confirmación. Se implementa en HAG-23 (admin) y **será** reutilizada en:
 - HAG-16: POST /api/checkout caso B (PaymentIntent succeeded)
 - HAG-19: Webhook Stripe payment_intent.succeeded
 
-No repetir lógica de transacción en 3 lugares.
+Por ahora solo se usa desde admin. La reutilización en checkout y webhook ocurre después cuando se implementan esas features.
+
+Evita repetir lógica crítica de transacción en 3 lugares.
 
 ### Validación de transiciones
 
@@ -135,7 +137,7 @@ HAG-23 puede pasar a `GO` cuando:
 1. ✅ lib/confirm-order.ts implementa transacción atómica con 4 pasos
 2. ✅ PATCH /api/admin/orders/[id]/status valida transiciones permitidas
 3. ✅ POST /api/admin/orders/[id]/confirm-payment verifica status, Stripe, confirmOrder
-4. ✅ OrderStatusSelect renderiza dropdown con transiciones correctas
+4. ✅ OrderStatusSelect renderiza `<select>` HTML con transiciones correctas
 5. ✅ ConfirmPaymentButton visible solo si PENDING_PAYMENT + stripeId
 6. ✅ Link a Stripe dashboard funciona
 7. ✅ Protección: solo ADMIN puede hacer PATCH/POST (withAdmin guard)

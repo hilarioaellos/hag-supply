@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/Button";
 
 type OrderStatus =
   | "PENDING_PAYMENT"
@@ -29,7 +28,7 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
 
 // Transiciones permitidas según estado actual
 const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  PENDING_PAYMENT: [], // Solo confirm-payment manual
+  PENDING_PAYMENT: [],
   PAYMENT_CONFIRMED: ["PROCESSING"],
   PROCESSING: ["SHIPPED"],
   SHIPPED: ["DELIVERED"],
@@ -55,15 +54,10 @@ export function OrderStatusSelect({
 
   const allowedNext = ALLOWED_TRANSITIONS[currentStatus];
 
-  if (allowedNext.length === 0) {
-    return (
-      <div className="text-[14px] text-hag-text-2">
-        No status transitions available for {STATUS_LABEL[currentStatus]}
-      </div>
-    );
-  }
+  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value as OrderStatus;
+    if (!newStatus) return;
 
-  const handleStatusChange = async (newStatus: OrderStatus) => {
     setLoading(true);
     setError(null);
 
@@ -95,19 +89,25 @@ export function OrderStatusSelect({
         </div>
       )}
 
-      <div className="flex gap-2">
-        {allowedNext.map((status) => (
-          <Button
-            key={status}
-            variant="secondary"
-            size="sm"
-            disabled={loading}
-            onClick={() => handleStatusChange(status)}
-          >
-            {loading ? "..." : `→ ${STATUS_LABEL[status]}`}
-          </Button>
-        ))}
-      </div>
+      {allowedNext.length === 0 ? (
+        <p className="text-[14px] text-hag-text-2">
+          No status transitions available for {STATUS_LABEL[currentStatus]}
+        </p>
+      ) : (
+        <select
+          value=""
+          onChange={handleStatusChange}
+          disabled={loading}
+          className="px-4 py-2 border border-hag-border rounded-lg focus:outline-none focus:ring-2 focus:ring-hag-accent disabled:opacity-50"
+        >
+          <option value="">Change status...</option>
+          {allowedNext.map((status) => (
+            <option key={status} value={status}>
+              → {STATUS_LABEL[status]}
+            </option>
+          ))}
+        </select>
+      )}
     </div>
   );
 }
