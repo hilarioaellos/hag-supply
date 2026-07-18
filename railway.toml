@@ -6,5 +6,3 @@ buildCommand = "npx prisma generate && npx next build"
 startCommand = "npx prisma db push && npx next start"
 healthcheckPath = "/api/health"
 healthcheckTimeout = 60
-restartPolicyType = "on-failure"
-restartPolicyMaxRetries = 3
