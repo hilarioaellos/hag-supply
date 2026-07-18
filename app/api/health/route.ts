@@ -7,7 +7,11 @@ export async function GET() {
   const allKeys = Object.keys(process.env).sort();
   const dbUrl = process.env.DATABASE_URL?.replace(/:([^@]+)@/, ":***@") ?? "NOT SET";
   const nextauthSecret = process.env.NEXTAUTH_SECRET ? "SET" : "NOT SET";
-  const nextauthUrl = process.env.NEXTAUTH_URL ?? "NOT SET";
+  const nextauthUrl =
+    process.env.NEXTAUTH_URL ??
+    (process.env.RAILWAY_PUBLIC_DOMAIN
+      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN} (via RAILWAY_PUBLIC_DOMAIN)`
+      : "NOT SET");
 
   // Try DB connection
   let dbStatus = "not attempted";

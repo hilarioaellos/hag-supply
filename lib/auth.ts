@@ -3,8 +3,15 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 
+const resolvedUrl =
+  process.env.NEXTAUTH_URL ??
+  (process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : undefined);
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? "MMRalqYeykbmFVctyflvuCjuR2T+P/y1wcKw80M4quA=",
+  ...(resolvedUrl && { url: resolvedUrl }),
   session: { strategy: "jwt" },
   providers: [
     CredentialsProvider({
