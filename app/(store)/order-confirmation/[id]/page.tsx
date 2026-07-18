@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth";
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";

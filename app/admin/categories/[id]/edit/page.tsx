@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth";
 import { notFound } from "next/navigation";
 import { authOptions } from "@/lib/auth";

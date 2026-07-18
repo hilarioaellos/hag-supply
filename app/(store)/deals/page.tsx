@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 import { getDealsProducts } from "@/lib/data/products";
 import { ProductCard } from "@/components/product/ProductCard";

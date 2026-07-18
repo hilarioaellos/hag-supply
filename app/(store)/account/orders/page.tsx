@@ -1,3 +1,5 @@
+﻿export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -53,7 +55,7 @@ export default async function OrdersPage() {
     return (
       <div className="min-h-screen bg-hag-bg flex items-center justify-center">
         <div className="text-center flex flex-col items-center gap-4">
-          <span className="text-[56px]">📦</span>
+          <span className="text-[56px]">ðŸ“¦</span>
           <h1 className="text-[26px] font-bold text-hag-text">No Orders Yet</h1>
           <p className="text-[15px] text-hag-text-2">
             You haven't placed any orders. Start shopping!
@@ -71,7 +73,7 @@ export default async function OrdersPage() {
       <div className="px-12 py-10 max-w-[1100px] mx-auto">
         <div className="mb-8">
           <Link href="/account" className="text-hag-accent hover:text-hag-accent-dark mb-4 inline-block">
-            ← Back to Account
+            â† Back to Account
           </Link>
           <h1 className="text-[28px] font-bold text-hag-text">Order History</h1>
         </div>
@@ -116,3 +118,4 @@ export default async function OrdersPage() {
     </div>
   );
 }
+

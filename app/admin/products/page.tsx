@@ -1,3 +1,5 @@
+﻿export const dynamic = "force-dynamic";
+
 import { getServerSession } from "next-auth";
 import { notFound } from "next/navigation";
 import { authOptions } from "@/lib/auth";
@@ -107,7 +109,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                 href={`/admin/products?page=${page - 1}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
                 className="px-3 py-1.5 rounded border border-hag-border text-[14px] text-hag-text hover:bg-hag-bg-alt"
               >
-                ← Prev
+                â† Prev
               </Link>
             )}
             <span className="text-[14px] text-hag-text-2">
@@ -118,7 +120,7 @@ export default async function ProductsPage({ searchParams }: PageProps) {
                 href={`/admin/products?page=${page + 1}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
                 className="px-3 py-1.5 rounded border border-hag-border text-[14px] text-hag-text hover:bg-hag-bg-alt"
               >
-                Next →
+                Next â†’
               </Link>
             )}
           </div>
@@ -127,3 +129,4 @@ export default async function ProductsPage({ searchParams }: PageProps) {
     </div>
   );
 }
+
