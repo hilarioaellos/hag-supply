@@ -1,5 +1,3 @@
-﻿export const dynamic = "force-dynamic";
-
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
@@ -53,4 +51,3 @@ export default function AccountPage() {
     </div>
   );
 }
-
