@@ -34,8 +34,11 @@ export default function AccountPage() {
             </div>
 
             <div className="pt-4 border-t border-hag-border flex flex-col gap-3">
+              <Link href="/" className="block">
+                <Button className="w-full">Start Shopping</Button>
+              </Link>
               <Link href="/account/orders" className="block">
-                <Button className="w-full">View Order History</Button>
+                <Button variant="secondary" className="w-full">View Order History</Button>
               </Link>
               <Button
                 variant="secondary"
