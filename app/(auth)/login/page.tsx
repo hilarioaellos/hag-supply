@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 
 function getSafeCallbackUrl(value: string | string[] | undefined) {
   const redirectValue = Array.isArray(value) ? value[0] : value;
-  if (!redirectValue) return "/account";
+  if (!redirectValue) return "/";
   if (!redirectValue.startsWith("/") || redirectValue.startsWith("//")) return "/account";
   return redirectValue;
 }
