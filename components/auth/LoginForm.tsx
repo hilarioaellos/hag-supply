@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Alert } from "@/components/ui/Alert";
 import { Button } from "@/components/ui/Button";
@@ -24,7 +23,6 @@ function getErrorMessage(error?: string) {
 }
 
 export function LoginForm({ callbackUrl, authError }: LoginFormProps) {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -54,11 +52,7 @@ export function LoginForm({ callbackUrl, authError }: LoginFormProps) {
       return;
     }
 
-    // result.url is an absolute URL — extract just the path for client-side navigation
-    const destination = result.url
-      ? new URL(result.url).pathname
-      : callbackUrl;
-    router.push(destination);
+    window.location.href = callbackUrl;
   }
 
   return (
