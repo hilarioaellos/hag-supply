@@ -11,7 +11,7 @@ import { ConfirmPaymentButton } from "@/components/admin/ConfirmPaymentButton";
 export default async function OrderDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const session = await getServerSession(authOptions);
 
@@ -19,8 +19,9 @@ export default async function OrderDetailPage({
     notFound();
   }
 
+  const { id } = await params;
   const order = await db.order.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       user: { select: { name: true, email: true } },
       items: {

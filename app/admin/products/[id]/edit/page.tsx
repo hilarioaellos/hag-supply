@@ -9,7 +9,7 @@ import { ProductForm } from "@/components/admin/ProductForm";
 export default async function EditProductPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const session = await getServerSession(authOptions);
 
@@ -17,8 +17,9 @@ export default async function EditProductPage({
     notFound();
   }
 
+  const { id } = await params;
   const product = await db.product.findUnique({
-    where: { id: params.id },
+    where: { id },
   });
 
   if (!product) {
