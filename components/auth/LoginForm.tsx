@@ -54,8 +54,11 @@ export function LoginForm({ callbackUrl, authError }: LoginFormProps) {
       return;
     }
 
-    router.push(result.url ?? callbackUrl);
-    router.refresh();
+    // result.url is an absolute URL — extract just the path for client-side navigation
+    const destination = result.url
+      ? new URL(result.url).pathname
+      : callbackUrl;
+    router.push(destination);
   }
 
   return (

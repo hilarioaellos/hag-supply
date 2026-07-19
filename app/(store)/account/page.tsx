@@ -9,7 +9,7 @@ export default function AccountPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  if (status === "loading") return null;
+  if (status === "loading") return <div className="min-h-screen bg-hag-bg" />;
 
   if (!session?.user) {
     router.push("/login?redirect=/account");
