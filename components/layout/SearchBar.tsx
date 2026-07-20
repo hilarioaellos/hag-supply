@@ -40,7 +40,7 @@ export function SearchBar({ categories }: SearchBarProps) {
   return (
     <form
       onSubmit={submit}
-      className="flex-1 max-w-[660px] h-[46px] border-[1.5px] border-hag-border rounded-lg flex items-center bg-hag-bg-alt overflow-hidden"
+      className="flex-1 max-w-[660px] h-[46px] border-[1.5px] border-hag-border rounded-lg flex items-center bg-hag-bg-alt"
     >
       <div className="relative flex-none" ref={dropdownRef}>
         <button
@@ -86,7 +86,7 @@ export function SearchBar({ categories }: SearchBarProps) {
 
       <button
         type="submit"
-        className="flex-none h-full w-14 bg-hag-accent text-white flex items-center justify-center hover:bg-hag-accent-dark transition-colors"
+        className="flex-none h-full w-14 bg-hag-accent text-white flex items-center justify-center hover:bg-hag-accent-dark transition-colors rounded-r-[6.5px]"
       >
         <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
           <circle cx="9" cy="9" r="6.5" stroke="currentColor" strokeWidth="1.6" />
