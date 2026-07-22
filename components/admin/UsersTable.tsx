@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 
 interface User {
   id: string;
@@ -17,9 +17,12 @@ interface UsersTableProps {
 }
 
 export function UsersTable({ users, currentUserId }: UsersTableProps) {
-  const [roles, setRoles] = useState<Record<string, string>>(
-    Object.fromEntries(users.map((u) => [u.id, u.role]))
+  const baseRoles = useMemo(
+    () => Object.fromEntries(users.map((u) => [u.id, u.role])),
+    [users]
   );
+  const [overrides, setOverrides] = useState<Record<string, string>>({});
+  const roles = { ...baseRoles, ...overrides };
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,21 +32,32 @@ export function UsersTable({ users, currentUserId }: UsersTableProps) {
     setLoading(userId);
     setError(null);
 
-    const res = await fetch(`/api/admin/users/${userId}/role`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: next }),
-    });
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/role`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: next }),
+      });
 
-    setLoading(null);
+      if (!res.ok) {
+        let message = "Failed to update role";
+        try {
+          const data = await res.json();
+          message = data.error ?? message;
+        } catch {
+          // body no es JSON (ej. 500 HTML) — usamos el mensaje por defecto
+        }
+        setError(message);
+        return;
+      }
 
-    if (!res.ok) {
-      const data = await res.json();
-      setError(data.error ?? "Failed to update role");
-      return;
+      const { role: confirmedRole } = await res.json();
+      setOverrides((prev) => ({ ...prev, [userId]: confirmedRole }));
+    } catch {
+      setError("Network error — please check your connection and try again");
+    } finally {
+      setLoading(null);
     }
-
-    setRoles((prev) => ({ ...prev, [userId]: next }));
   }
 
   return (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { Prisma } from "@prisma/client";
 
 export async function PATCH(
   req: NextRequest,
@@ -13,7 +14,13 @@ export async function PATCH(
   }
 
   const { id } = await params;
-  const { role } = await req.json();
+
+  let role: string;
+  try {
+    ({ role } = await req.json());
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
 
   if (role !== "ADMIN" && role !== "CUSTOMER") {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
@@ -23,11 +30,17 @@ export async function PATCH(
     return NextResponse.json({ error: "Cannot change your own role" }, { status: 400 });
   }
 
-  const user = await db.user.update({
-    where: { id },
-    data: { role },
-    select: { id: true, email: true, role: true },
-  });
-
-  return NextResponse.json(user);
+  try {
+    const user = await db.user.update({
+      where: { id },
+      data: { role },
+      select: { id: true, email: true, role: true },
+    });
+    return NextResponse.json(user);
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") {
+      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    }
+    throw e;
+  }
 }

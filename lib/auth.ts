@@ -34,6 +34,13 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role;
+      } else if (token.id) {
+        // Re-fetch role on every token refresh so demotions/promotions take effect immediately
+        const dbUser = await db.user.findUnique({
+          where: { id: token.id as string },
+          select: { role: true },
+        });
+        if (dbUser) token.role = dbUser.role;
       }
       return token;
     },

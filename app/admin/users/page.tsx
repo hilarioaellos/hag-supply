@@ -60,7 +60,8 @@ export default async function UsersPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
-  const page = Math.max(1, parseInt(params.page || "1"));
+  const parsed = parseInt(params.page ?? "", 10);
+  const page = Number.isNaN(parsed) || parsed < 1 ? 1 : parsed;
   const q = params.q || "";
 
   const { items, total, pages } = await getUsers(page, q);
