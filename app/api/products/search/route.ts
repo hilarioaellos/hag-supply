@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
         slug: true,
         price: true,
         comparePrice: true,
-        imageUrls: true,
+        media: { select: { url: true, type: true, order: true }, orderBy: { order: "asc" } },
         badge: true,
         stock: true,
       },

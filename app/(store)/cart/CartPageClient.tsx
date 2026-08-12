@@ -11,7 +11,7 @@ interface CartItemData {
     name: string;
     slug: string;
     price: string;
-    imageUrls: string[];
+    media: { url: string; type: string; order: number }[];
     stock: number;
   };
 }

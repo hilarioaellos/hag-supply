@@ -18,7 +18,7 @@ export const GET = withAuth(async (_req: NextRequest) => {
           name: true,
           slug: true,
           price: true,
-          imageUrls: true,
+          media: { select: { url: true, type: true, order: true }, orderBy: { order: "asc" } },
           stock: true,
           deletedAt: true,
         },

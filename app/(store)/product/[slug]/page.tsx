@@ -65,8 +65,9 @@ export default async function ProductPage({ params }: Props) {
   const discount = comparePrice
     ? Math.round(((comparePrice - price) / comparePrice) * 100)
     : null;
-  const mainImage = product.imageUrls[0] ?? null;
-  const extraImages = product.imageUrls.slice(1);
+  const images = product.media.filter((m) => m.type === "IMAGE");
+  const mainImage = images[0]?.url ?? null;
+  const extraImages = images.slice(1);
 
   return (
     <div className="min-h-screen bg-hag-bg">
@@ -94,14 +95,14 @@ export default async function ProductPage({ params }: Props) {
             {/* Thumbnail strip */}
             {extraImages.length > 0 && (
               <div className="flex flex-col gap-2 w-[72px] shrink-0">
-                {product.imageUrls.map((url, i) => (
+                {images.map((m, i) => (
                   <div
                     key={i}
                     className={`relative h-[72px] rounded-lg overflow-hidden border-2 ${
                       i === 0 ? "border-hag-accent" : "border-hag-border"
                     }`}
                   >
-                    <Image src={url} alt={`${product.name} ${i + 1}`} fill className="object-cover" sizes="72px" />
+                    <Image src={m.url} alt={`${product.name} ${i + 1}`} fill className="object-cover" sizes="72px" />
                   </div>
                 ))}
               </div>

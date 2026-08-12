@@ -59,7 +59,6 @@ export const POST = withAdmin(async (req: NextRequest) => {
     price,
     comparePrice,
     stock,
-    imageUrls,
     badge,
     categoryId,
   } = body;
@@ -99,7 +98,6 @@ export const POST = withAdmin(async (req: NextRequest) => {
       price: parseFloat(price),
       comparePrice: comparePrice ? parseFloat(comparePrice) : null,
       stock: parseInt(stock),
-      imageUrls: imageUrls || [],
       badge: badge || null,
       categoryId,
     },

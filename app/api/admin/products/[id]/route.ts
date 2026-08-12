@@ -13,7 +13,6 @@ export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
     price,
     comparePrice,
     stock,
-    imageUrls,
     badge,
     categoryId,
   } = body;
@@ -66,7 +65,6 @@ export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
         comparePrice: comparePrice ? parseFloat(comparePrice) : null,
       }),
       ...(stock !== undefined && { stock: parseInt(stock) }),
-      ...(imageUrls !== undefined && { imageUrls }),
       ...(badge !== undefined && { badge: badge || null }),
       ...(categoryId && { categoryId }),
     },

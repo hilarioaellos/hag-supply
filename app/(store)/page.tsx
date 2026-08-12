@@ -13,7 +13,7 @@ async function getFeaturedProducts(): Promise<ProductCardData[]> {
       where: { deletedAt: null },
       select: {
         id: true, name: true, slug: true, price: true,
-        comparePrice: true, imageUrls: true, badge: true, stock: true,
+        comparePrice: true, media: { select: { url: true, type: true, order: true }, orderBy: { order: "asc" } }, badge: true, stock: true,
       },
       take: 24,
       orderBy: { createdAt: "desc" },

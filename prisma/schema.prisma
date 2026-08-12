@@ -3,13 +3,19 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
   CUSTOMER
   ADMIN
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
 }
 
 enum ProductBadge {
@@ -74,11 +80,27 @@ model Product {
   updatedAt    DateTime      @updatedAt
   cartItems    CartItem[]
   orderItems   OrderItem[]
+  media        ProductMedia[]
 
   @@index([categoryId])
   @@index([slug])
   @@index([badge])
   @@index([deletedAt])
+}
+
+model ProductMedia {
+  id          String    @id @default(cuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type        MediaType
+  url         String
+  storagePath String
+  order       Int       @default(0)
+  size        Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([productId])
+  @@index([productId, type])
 }
 
 model CartItem {

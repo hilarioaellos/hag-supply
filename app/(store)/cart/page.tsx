@@ -15,7 +15,7 @@ async function getCartItems(userId: string) {
           name: true,
           slug: true,
           price: true,
-          imageUrls: true,
+          media: { select: { url: true, type: true, order: true }, orderBy: { order: "asc" } },
           stock: true,
         },
       },

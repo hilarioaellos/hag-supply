@@ -4,6 +4,11 @@ import { Prisma, ProductBadge } from "@prisma/client";
 
 const PER_PAGE = 24;
 
+const mediaSelect = {
+  select: { url: true, type: true, order: true },
+  orderBy: { order: "asc" as const },
+};
+
 export const getCategoryProducts = cache(
   async (
     slug: string,
@@ -33,7 +38,7 @@ export const getCategoryProducts = cache(
         ? { price: "desc" }
         : sort === "newest"
         ? { createdAt: "desc" }
-        : { badge: "desc" }; // featured: badged items first (nulls last in desc)
+        : { badge: "desc" };
 
     const [total, products, category] = await Promise.all([
       db.product.count({ where }),
@@ -45,7 +50,7 @@ export const getCategoryProducts = cache(
           slug: true,
           price: true,
           comparePrice: true,
-          imageUrls: true,
+          media: mediaSelect,
           badge: true,
           stock: true,
         },
@@ -85,7 +90,7 @@ export const getProduct = cache(async (slug: string) => {
       sku: true,
       price: true,
       comparePrice: true,
-      imageUrls: true,
+      media: mediaSelect,
       badge: true,
       stock: true,
       category: { select: { name: true, slug: true } },
@@ -123,7 +128,7 @@ export const searchProducts = cache(
           slug: true,
           price: true,
           comparePrice: true,
-          imageUrls: true,
+          media: mediaSelect,
           badge: true,
           stock: true,
         },
@@ -163,7 +168,7 @@ export const getDealsProducts = cache(async (page = 1) => {
         slug: true,
         price: true,
         comparePrice: true,
-        imageUrls: true,
+        media: mediaSelect,
         badge: true,
         stock: true,
       },
@@ -200,7 +205,7 @@ export const getRelatedProducts = cache(
           slug: true,
           price: true,
           comparePrice: true,
-          imageUrls: true,
+          media: mediaSelect,
           badge: true,
           stock: true,
         },

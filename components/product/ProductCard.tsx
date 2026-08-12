@@ -9,7 +9,7 @@ export interface ProductCardData {
   slug: string;
   price: string;
   comparePrice?: string | null;
-  imageUrls: string[];
+  media: { url: string; type: string; order: number }[];
   badge?: ProductBadge | null;
   stock: number;
 }
@@ -25,7 +25,7 @@ function StarRating() {
 }
 
 export function ProductCard({ product }: { product: ProductCardData }) {
-  const img = product.imageUrls[0] ?? "/placeholder-product.svg";
+  const img = product.media[0]?.url ?? "/placeholder-product.svg";
   const price = parseFloat(product.price);
   const comparePrice = product.comparePrice ? parseFloat(product.comparePrice) : null;
 

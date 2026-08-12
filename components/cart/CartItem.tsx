@@ -14,7 +14,7 @@ interface Props {
       name: string;
       slug: string;
       price: string;
-      imageUrls: string[];
+      media: { url: string; type: string; order: number }[];
       stock: number;
     };
   };
@@ -29,7 +29,7 @@ export function CartItem({ item, onLinkClick, onMutate }: Props) {
   const [removing, setRemoving] = useState(false);
 
   const price = parseFloat(item.product.price);
-  const img = item.product.imageUrls[0] ?? "/placeholder-product.svg";
+  const img = item.product.media[0]?.url ?? "/placeholder-product.svg";
   const max = Math.min(item.product.stock, 10);
 
   async function updateQty(newQty: number) {

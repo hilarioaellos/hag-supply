@@ -3,8 +3,12 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 
+if (!process.env.NEXTAUTH_SECRET) {
+  throw new Error("[auth] NEXTAUTH_SECRET environment variable is required");
+}
+
 export const authOptions: NextAuthOptions = {
-  secret: process.env.NEXTAUTH_SECRET ?? "MMRalqYeykbmFVctyflvuCjuR2T+P/y1wcKw80M4quA=",
+  secret: process.env.NEXTAUTH_SECRET,
   session: { strategy: "jwt" },
   providers: [
     CredentialsProvider({
