@@ -8,14 +8,14 @@ export async function Header() {
   const categories = await getCategories();
 
   return (
-    <header className="h-[92px] bg-hag-bg border-b border-hag-border flex items-center gap-9 px-12">
+    <header className="h-[108px] bg-hag-bg border-b border-hag-border flex items-center gap-9 px-12">
       <Link href="/" className="flex-none">
         <Image
           src="/logos/hag-color.svg"
           alt="HAG Supply"
-          width={120}
-          height={38}
-          style={{ height: 38, width: "auto" }}
+          width={180}
+          height={57}
+          style={{ height: 57, width: "auto" }}
           priority
         />
       </Link>

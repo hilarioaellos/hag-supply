@@ -40,6 +40,11 @@ export default function AccountPage() {
               <Link href="/account/orders" className="block">
                 <Button variant="secondary" className="w-full">View Order History</Button>
               </Link>
+              {session.user.role === "ADMIN" && (
+                <Link href="/admin" className="block">
+                  <Button variant="secondary" className="w-full">Admin Panel</Button>
+                </Link>
+              )}
               <Button
                 variant="secondary"
                 className="w-full"

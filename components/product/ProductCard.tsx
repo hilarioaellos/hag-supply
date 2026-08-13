@@ -75,7 +75,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
       ) : (
         <Link
           href={`/product/${product.slug}`}
-          className="mt-1 w-full py-2.5 rounded-[7px] text-[13px] font-semibold bg-hag-accent text-white text-center hover:bg-hag-accent-dark transition-colors"
+          className="mt-1 w-full py-2.5 rounded-[7px] text-[13px] font-semibold bg-hag-accent text-center hover:bg-hag-accent-dark transition-colors"
+          style={{ color: "white" }}
         >
           Add to Cart
         </Link>

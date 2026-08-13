@@ -98,40 +98,44 @@ export default async function HomePage() {
   return (
     <div>
       {/* HERO */}
-      <section className="grid grid-cols-2 bg-hag-bg-alt">
-        <div className="px-16 py-[76px] flex flex-col justify-center gap-5">
-          <span className="uppercase tracking-[0.08em] text-[12px] font-bold text-hag-accent-dark">
+      <section className="grid grid-cols-2" style={{ background: "var(--color-hag-accent-dark)", color: "white" }}>
+        <div className="px-16 py-[24px] flex flex-col justify-center gap-5">
+          <span className="uppercase tracking-[0.1em] text-[11px] font-bold text-white/60">
             Trusted by households and businesses nationwide
           </span>
-          <h1 className="m-0 text-[52px] leading-[1.08] font-extrabold text-hag-text max-w-[560px]">
+          <h1 className="m-0 text-[54px] leading-[1.08] font-extrabold text-white max-w-[560px]">
             Everything your home needs, delivered fast.
           </h1>
-          <p className="m-0 text-[17px] leading-relaxed text-hag-text-2 max-w-[460px]">
+          <p className="m-0 text-[17px] leading-relaxed text-white/75 max-w-[460px]">
             Pantry staples, cleaning supplies, tools, decor and outdoor gear — one reliable source, thousands of products in stock.
           </p>
           <div className="flex gap-3.5 mt-3">
             <Link
               href="/category/home-and-kitchen"
-              className="px-[30px] py-[15px] rounded-lg bg-hag-accent text-white text-[15px] font-semibold hover:bg-hag-accent-dark transition-colors"
+              className="px-[30px] py-[15px] rounded-lg bg-hag-accent text-[15px] font-bold shadow-lg hover:bg-hag-accent-dark transition-all"
+              style={{ color: "white" }}
             >
               Shop Now
             </Link>
             <Link
               href="#categories"
-              className="px-[30px] py-[15px] rounded-lg border-[1.5px] border-hag-border text-hag-text text-[15px] font-semibold hover:bg-hag-bg transition-colors"
+              className="px-[30px] py-[15px] rounded-lg bg-white/15 backdrop-blur-sm border border-white/50 text-white text-[15px] font-semibold hover:bg-white/25 transition-all"
             >
               Browse Categories
             </Link>
           </div>
         </div>
-        <div
-          className="flex items-center justify-center min-h-[520px] relative overflow-hidden"
-        >
+        <div className="flex items-center justify-center min-h-[180px] relative overflow-hidden">
           <img
             src="https://images.unsplash.com/photo-1601600576337-c1d8a0d1373c?w=1200&q=85"
             alt="Tienda HAG Supply"
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover opacity-40"
           />
+          <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, var(--color-hag-accent-dark)/0 0%, var(--color-hag-accent)/20 100%)" }} />
+          <div className="relative z-10 text-center px-12">
+            <p className="text-white/90 text-[22px] font-bold leading-snug mb-2">10,000+ products</p>
+            <p className="text-white/60 text-[15px]">Ready to ship today</p>
+          </div>
         </div>
       </section>
 
