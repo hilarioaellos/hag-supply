@@ -40,7 +40,7 @@ export function SearchBar({ categories }: SearchBarProps) {
   return (
     <form
       onSubmit={submit}
-      className="flex-1 max-w-[660px] h-[46px] border-[1.5px] border-hag-border rounded-lg flex items-center bg-hag-bg-alt"
+      className="w-full md:flex-1 md:max-w-[660px] h-[46px] border-[1.5px] border-hag-border rounded-lg flex items-center bg-hag-bg-alt"
     >
       <div className="relative flex-none" ref={dropdownRef}>
         <button

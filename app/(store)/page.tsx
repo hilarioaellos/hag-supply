@@ -98,34 +98,34 @@ export default async function HomePage() {
   return (
     <div>
       {/* HERO */}
-      <section className="grid grid-cols-2" style={{ background: "var(--color-hag-accent-dark)", color: "white" }}>
-        <div className="px-16 py-[24px] flex flex-col justify-center gap-5">
+      <section className="grid grid-cols-1 md:grid-cols-2" style={{ background: "var(--color-hag-accent-dark)", color: "white" }}>
+        <div className="px-6 py-10 md:px-16 md:py-[24px] flex flex-col justify-center gap-5">
           <span className="uppercase tracking-[0.1em] text-[11px] font-bold text-white/60">
             Trusted by households and businesses nationwide
           </span>
-          <h1 className="m-0 text-[54px] leading-[1.08] font-extrabold text-white max-w-[560px]">
+          <h1 className="m-0 text-[36px] md:text-[54px] leading-[1.08] font-extrabold text-white max-w-[560px]">
             Everything your home needs, delivered fast.
           </h1>
-          <p className="m-0 text-[17px] leading-relaxed text-white/75 max-w-[460px]">
+          <p className="m-0 text-[15px] md:text-[17px] leading-relaxed text-white/75 max-w-[460px]">
             Pantry staples, cleaning supplies, tools, decor and outdoor gear — one reliable source, thousands of products in stock.
           </p>
-          <div className="flex gap-3.5 mt-3">
+          <div className="flex flex-col sm:flex-row gap-3 mt-3">
             <Link
               href="/category/home-and-kitchen"
-              className="px-[30px] py-[15px] rounded-lg bg-hag-accent text-[15px] font-bold shadow-lg hover:bg-hag-accent-dark transition-all"
+              className="text-center px-[30px] py-[15px] rounded-lg bg-hag-accent text-[15px] font-bold shadow-lg hover:bg-hag-accent-dark transition-all"
               style={{ color: "white" }}
             >
               Shop Now
             </Link>
             <Link
               href="#categories"
-              className="px-[30px] py-[15px] rounded-lg bg-white/15 backdrop-blur-sm border border-white/50 text-white text-[15px] font-semibold hover:bg-white/25 transition-all"
+              className="text-center px-[30px] py-[15px] rounded-lg bg-white/15 backdrop-blur-sm border border-white/50 text-white text-[15px] font-semibold hover:bg-white/25 transition-all"
             >
               Browse Categories
             </Link>
           </div>
         </div>
-        <div className="flex items-center justify-center min-h-[180px] relative overflow-hidden">
+        <div className="hidden md:flex items-center justify-center min-h-[180px] relative overflow-hidden">
           <img
             src="https://images.unsplash.com/photo-1601600576337-c1d8a0d1373c?w=1200&q=85"
             alt="Tienda HAG Supply"
@@ -140,15 +140,15 @@ export default async function HomePage() {
       </section>
 
       {/* SHOP BY CATEGORY */}
-      <section id="categories" className="px-12 py-16 bg-hag-bg">
+      <section id="categories" className="px-4 sm:px-6 lg:px-12 py-10 md:py-16 bg-hag-bg">
         <div className="flex items-baseline justify-between mb-7">
-          <h2 className="m-0 text-[26px] font-bold text-hag-text">Shop by Category</h2>
-          <Link href="/category/home-and-kitchen" className="text-[14px] font-semibold text-hag-accent-dark hover:text-hag-accent transition-colors">
-            View all categories →
+          <h2 className="m-0 text-[22px] md:text-[26px] font-bold text-hag-text">Shop by Category</h2>
+          <Link href="/category/home-and-kitchen" className="text-[13px] md:text-[14px] font-semibold text-hag-accent-dark hover:text-hag-accent transition-colors">
+            View all →
           </Link>
         </div>
 
-        <div className="grid grid-cols-6 gap-5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-5">
           {categories.map((cat) => (
             <Link
               key={cat.slug}
@@ -194,20 +194,20 @@ export default async function HomePage() {
       </section>
 
       {/* FEATURED PRODUCTS */}
-      <section className="px-12 py-16 bg-hag-bg-alt">
+      <section className="px-4 sm:px-6 lg:px-12 py-10 md:py-16 bg-hag-bg-alt">
         <div className="mb-7">
-          <h2 className="m-0 mb-1.5 text-[26px] font-bold text-hag-text">Featured Products</h2>
-          <p className="m-0 text-[15px] text-hag-text-2">Popular picks across the store, restocked weekly.</p>
+          <h2 className="m-0 mb-1.5 text-[22px] md:text-[26px] font-bold text-hag-text">Featured Products</h2>
+          <p className="m-0 text-[14px] md:text-[15px] text-hag-text-2">Popular picks across the store, restocked weekly.</p>
         </div>
 
         {featured.length > 0 ? (
-          <div className="grid grid-cols-6 gap-[18px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-[18px]">
             {featured.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-6 gap-[18px]">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-[18px]">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="bg-hag-bg border border-hag-border rounded-[10px] p-3.5 flex flex-col gap-2">
                 <div className="h-[150px] rounded-lg bg-hag-bg-alt animate-pulse" />
@@ -222,7 +222,7 @@ export default async function HomePage() {
       </section>
 
       {/* BENEFITS */}
-      <section className="px-12 py-[52px] bg-hag-bg border-t border-b border-hag-border flex justify-between gap-6">
+      <section className="px-4 sm:px-6 lg:px-12 py-10 md:py-[52px] bg-hag-bg border-t border-b border-hag-border grid grid-cols-2 md:flex md:justify-between gap-6">
         {BENEFITS.map((b) => (
           <div key={b.label} className="flex flex-col items-center text-center gap-2.5 max-w-[200px]">
             <div className="w-[52px] h-[52px] rounded-full bg-hag-accent-soft flex items-center justify-center text-hag-accent-dark">
@@ -235,15 +235,15 @@ export default async function HomePage() {
       </section>
 
       {/* PROMO BLOCK */}
-      <section className="grid grid-cols-[1.1fr_1fr] bg-hag-accent-dark text-white">
-        <div className="px-16 py-16 flex flex-col justify-center gap-4">
+      <section className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr] bg-hag-accent-dark text-white">
+        <div className="px-6 py-10 md:px-16 md:py-16 flex flex-col justify-center gap-4">
           <span className="uppercase tracking-[0.08em] text-[12px] font-bold text-white/75">
             Seasonal Savings Event
           </span>
-          <h2 className="m-0 text-[38px] font-extrabold leading-[1.15] max-w-[480px]">
+          <h2 className="m-0 text-[28px] md:text-[38px] font-extrabold leading-[1.15] max-w-[480px]">
             Everything for Your Home, in One Place
           </h2>
-          <p className="m-0 text-[15.5px] leading-relaxed text-white/85 max-w-[440px]">
+          <p className="m-0 text-[14px] md:text-[15.5px] leading-relaxed text-white/85 max-w-[440px]">
             Save on top categories this month — from patio essentials to power tools.
           </p>
           <Link
@@ -253,9 +253,7 @@ export default async function HomePage() {
             Shop Now
           </Link>
         </div>
-        <div
-          className="flex items-center justify-center min-h-[360px] relative overflow-hidden"
-        >
+        <div className="hidden md:flex items-center justify-center min-h-[360px] relative overflow-hidden">
           <img
             src="https://images.unsplash.com/photo-1607083206869-4c7672e72a8a?w=900&q=85"
             alt="Ofertas Especiales"

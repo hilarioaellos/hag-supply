@@ -16,8 +16,8 @@ const POLICIES = ["Privacy Policy", "Terms of Service", "Accessibility"];
 export function Footer() {
   return (
     <footer className="bg-hag-footer text-white/70">
-      <div className="px-12 pt-14 pb-7">
-        <div className="grid grid-cols-[1.2fr_1fr_1fr_1fr_1.3fr] gap-8 pb-10 border-b border-white/10">
+      <div className="px-4 md:px-8 lg:px-12 pt-10 md:pt-14 pb-7">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-[1.2fr_1fr_1fr_1fr_1.3fr] gap-8 pb-10 border-b border-white/10">
           {/* Categories */}
           <div>
             <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-white/45 mb-4">Categories</p>
@@ -63,7 +63,7 @@ export function Footer() {
           </div>
 
           {/* Newsletter */}
-          <div>
+          <div className="col-span-2 md:col-span-1">
             <p className="text-[12px] font-bold uppercase tracking-[0.06em] text-white/45 mb-4">Newsletter</p>
             <p className="text-[13.5px] mb-3.5 leading-relaxed">Get weekly deals and new arrivals in your inbox.</p>
             <div className="flex border border-white/25 rounded-lg overflow-hidden">
@@ -79,7 +79,7 @@ export function Footer() {
         </div>
 
         {/* Bottom bar */}
-        <div className="flex items-center justify-between pt-6">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-0 pt-6">
           <div className="flex items-center gap-3.5">
             <Image src="/logos/hag-blanco.svg" alt="HAG Supply" width={80} height={22} style={{ height: 22, width: "auto", opacity: 0.9 }} />
             <span className="text-[12.5px] text-white/45">© 2026 HAG Supply — A Division of HAG Partner LLC</span>
