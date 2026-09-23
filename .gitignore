@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 /app/generated/prisma
+
+# respaldos locales (contienen datos de usuarios)
+/backups/
+
+# scripts sueltos archivados (fuera del build)
+/_archivo/
+
+# configuración local de Claude Code y volcados de base de datos (sensibles)
+/.claude/settings.local.json
+*.dump

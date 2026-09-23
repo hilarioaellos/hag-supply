@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "next start"
+    "start": "next start",
+    "db:backup": "tsx scripts/backup-db.ts",
+    "catalog:import": "tsx scripts/import-catalogo-100.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
@@ -37,7 +39,9 @@
     "axios": "^1.18.1",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
+    "sharp": "0.34.5",
     "tailwindcss": "^4",
+    "tsx": "4.23.15",
     "typescript": "^5"
   }
 }

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { confirmOrder } from "@/lib/confirm-order";
 
 export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
 
   const order = await db.order.findUnique({
     where: { id: params.id },

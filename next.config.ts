@@ -22,7 +22,12 @@ const nextConfig: NextConfig = {
         hostname: "cdn.dummyjson.com",
         pathname: "/**",
       },
-      // Se agregarán dominios reales al definir el bucket de producción en HAG-25
+      // Supabase Storage — bucket público product-media (catálogo real)
+      {
+        protocol: "https",
+        hostname: "tkhtldfmfivughpeyonm.supabase.co",
+        pathname: "/storage/v1/object/public/product-media/**",
+      },
     ],
   },
 };

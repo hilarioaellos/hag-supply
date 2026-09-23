@@ -1,45 +1,14 @@
 import { NextResponse } from "next/server";
+import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
+// Público: solo informa si la app responde y la DB conecta. Sin detalles internos.
 export async function GET() {
-  // Log all env vars available (hide values, show keys)
-  const allKeys = Object.keys(process.env).sort();
-  const dbUrl = process.env.DATABASE_URL?.replace(/:([^@]+)@/, ":***@") ?? "NOT SET";
-  const nextauthSecret = process.env.NEXTAUTH_SECRET ? "SET" : "NOT SET";
-  const nextauthUrl =
-    process.env.NEXTAUTH_URL ??
-    (process.env.RAILWAY_PUBLIC_DOMAIN
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN} (via RAILWAY_PUBLIC_DOMAIN)`
-      : "NOT SET");
-
-  // Try DB connection
-  let dbStatus = "not attempted";
-  let dbError = null;
   try {
-    const { PrismaClient } = await import("@prisma/client");
-    const prisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: process.env.DATABASE_URL,
-        },
-      },
-    });
-    const count = await prisma.product.count();
-    await prisma.$disconnect();
-    dbStatus = `connected - ${count} products`;
-  } catch (e: any) {
-    dbError = e.message;
-    dbStatus = "failed";
+    await db.$queryRaw`SELECT 1`;
+    return NextResponse.json({ status: "ok", db: "ok" });
+  } catch {
+    return NextResponse.json({ status: "degraded", db: "error" }, { status: 503 });
   }
-
-  return NextResponse.json({
-    nodeEnv: process.env.NODE_ENV,
-    dbUrl,
-    nextauthSecret,
-    nextauthUrl,
-    dbStatus,
-    dbError,
-    availableEnvKeys: allKeys,
-  });
 }

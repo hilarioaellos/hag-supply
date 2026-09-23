@@ -3,7 +3,7 @@ import { withAdmin } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 
 export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
   const body = await req.json();
   const { name, slug, imageUrl } = body;
 
@@ -59,7 +59,7 @@ export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
 });
 
 export const DELETE = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
 
   const category = await db.category.findUnique({
     where: { id: params.id },

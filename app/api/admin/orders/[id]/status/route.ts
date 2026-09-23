@@ -15,7 +15,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
 };
 
 export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
   const body = await req.json();
   const { status: newStatus } = body;
 

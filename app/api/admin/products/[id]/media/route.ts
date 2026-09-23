@@ -30,7 +30,7 @@ function extFromMime(mime: string): string {
 
 // POST /api/admin/products/[id]/media — upload a file
 export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
   const productId = params.id;
 
   const product = await db.product.findUnique({ where: { id: productId } });
@@ -124,7 +124,7 @@ export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
 
 // DELETE /api/admin/products/[id]/media?mediaId=xxx
 export const DELETE = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
   const mediaId = req.nextUrl.searchParams.get("mediaId");
 
   if (!mediaId) {
@@ -148,7 +148,7 @@ export const DELETE = withAdmin(async (req: NextRequest, context: unknown) => {
 
 // PATCH /api/admin/products/[id]/media — reorder [{ id, order }]
 export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
-  const { params } = context as { params: { id: string } };
+  const params = await (context as { params: Promise<{ id: string }> }).params;
   const body = await req.json();
   const items: { id: string; order: number }[] = body?.items ?? [];
 
