@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAdmin } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
 import { confirmOrder } from "@/lib/confirm-order";
+import { stripe } from "@/lib/stripe";
+import { handleOversell } from "@/lib/oversell";
+import { sendOrderConfirmation } from "@/lib/order-emails";
 
 export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
   const params = await (context as { params: Promise<{ id: string }> }).params;
@@ -30,30 +33,39 @@ export const POST = withAdmin(async (req: NextRequest, context: unknown) => {
     );
   }
 
-  // TODO: PASO 3: Consultar Stripe para verificar que el pago está confirmed (HAG-16)
-  // Stripe integration will be added in HAG-16-19 (Checkout & Stripe phase)
-
-  // PASO 4: Llamar confirmOrder() (función compartida)
   try {
+    // PASO 3: Consultar Stripe — la seguridad real del botón: solo se confirma un pago cobrado.
+    const paymentIntent = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId);
+    if (paymentIntent.status !== "succeeded") {
+      return NextResponse.json(
+        { error: `Payment is not completed in Stripe (status: ${paymentIntent.status})` },
+        { status: 422 }
+      );
+    }
+
+    // PASO 4: Llamar confirmOrder() (función compartida)
     const result = await confirmOrder(params.id);
 
     if (result === "confirmed") {
-      // TODO: Enviar email de confirmación (HAG-27)
+      await sendOrderConfirmation(params.id);
       return NextResponse.json({ success: true, result });
     }
 
     if (result === "already_processed") {
-      return NextResponse.json({ success: true, result });
+      // Otro actor la procesó: se informa el estado real, que puede no ser una compra confirmada.
+      const { status } = await db.order.findUniqueOrThrow({ where: { id: params.id }, select: { status: true } });
+      return NextResponse.json({ success: true, result, status });
     }
 
     if (result === "oversell") {
-      // TODO: Manejar flujo de oversell (refund, etc.)
-      return NextResponse.json(
-        { error: "Oversell detected", result },
-        { status: 409 }
-      );
+      // Sin stock: se reembolsa con el mismo flujo del webhook (plan MVP, sección F paso 7).
+      // refund: CANCELLED_REFUNDED | REFUND_PENDING | OVERSELL_REFUND_FAILED | SKIPPED
+      const refund = await handleOversell(params.id);
+      const { status } = await db.order.findUniqueOrThrow({ where: { id: params.id }, select: { status: true } });
+      return NextResponse.json({ success: true, result, refund, status });
     }
   } catch (err) {
+    console.error(`[confirm-payment] orden ${params.id}:`, err);
     return NextResponse.json(
       { error: "Error confirming order" },
       { status: 500 }
