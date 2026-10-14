@@ -12,47 +12,6 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
-function StarRating({ rating, count }: { rating: number; count: number }) {
-  const full = Math.floor(rating);
-  const half = rating % 1 >= 0.5;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex items-center gap-0.5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <svg key={i} width="16" height="16" viewBox="0 0 24 24" fill="none">
-            {i < full ? (
-              <polygon
-                points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
-                fill="var(--color-hag-star)"
-              />
-            ) : i === full && half ? (
-              <>
-                <defs>
-                  <linearGradient id={`half-${i}`}>
-                    <stop offset="50%" stopColor="var(--color-hag-star)" />
-                    <stop offset="50%" stopColor="var(--color-hag-border)" />
-                  </linearGradient>
-                </defs>
-                <polygon
-                  points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
-                  fill={`url(#half-${i})`}
-                />
-              </>
-            ) : (
-              <polygon
-                points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"
-                fill="var(--color-hag-border)"
-              />
-            )}
-          </svg>
-        ))}
-      </div>
-      <span className="text-[14px] font-semibold text-hag-text">{rating}</span>
-      <span className="text-[14px] text-hag-text-2">({count} reviews)</span>
-    </div>
-  );
-}
-
 export default async function ProductPage({ params }: Props) {
   const { slug } = await params;
   const product = await getProduct(slug);
@@ -149,11 +108,15 @@ export default async function ProductPage({ params }: Props) {
               <p className="text-[12px] text-hag-text-3 font-mono">SKU: {product.sku}</p>
             )}
 
+            {/* Brand */}
+            {product.brand && (
+              <p className="text-[13px] font-semibold uppercase tracking-wider text-hag-text-2">{product.brand}</p>
+            )}
+
             {/* Name */}
             <h1 className="text-[28px] font-bold text-hag-text leading-snug">{product.name}</h1>
 
-            {/* Rating — decorativo en MVP */}
-            <StarRating rating={4.2} count={127} />
+            <p className="text-[14px] text-hag-text-2">No reviews yet</p>
 
             {/* Price */}
             <div className="flex items-baseline gap-3">
@@ -174,10 +137,7 @@ export default async function ProductPage({ params }: Props) {
                 <>
                   <span className="w-2 h-2 rounded-full bg-green-500" />
                   <span className="text-[13px] font-medium text-green-700">
-                    In stock
-                    {product.stock <= 10 && (
-                      <span className="text-hag-sale ml-1">— only {product.stock} left</span>
-                    )}
+                    In stock — {product.stock} available
                   </span>
                 </>
               ) : (
@@ -199,20 +159,27 @@ export default async function ProductPage({ params }: Props) {
                 Description
               </p>
               <p className="text-[15px] text-hag-text-2 leading-relaxed">{product.description}</p>
+              {(product.condition || product.upc) && (
+                <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px] text-hag-text-2">
+                  {product.condition && (
+                    <>
+                      <dt className="font-semibold text-hag-text">Condition</dt>
+                      <dd className="m-0">{product.condition}</dd>
+                    </>
+                  )}
+                  {product.upc && (
+                    <>
+                      <dt className="font-semibold text-hag-text">UPC/EAN</dt>
+                      <dd className="m-0 font-mono">{product.upc}</dd>
+                    </>
+                  )}
+                </dl>
+              )}
             </div>
 
-            {/* Trust badges */}
-            <div className="flex gap-4 pt-1">
-              {[
-                { icon: "🚚", label: "Free shipping over $50" },
-                { icon: "🔒", label: "Secure checkout" },
-                { icon: "↩️", label: "30-day returns" },
-              ].map((b) => (
-                <div key={b.label} className="flex items-center gap-1.5 text-[12px] text-hag-text-2">
-                  <span>{b.icon}</span>
-                  <span>{b.label}</span>
-                </div>
-              ))}
+            <div className="flex items-center gap-1.5 pt-1 text-[12px] text-hag-text-2">
+              <span>🚚</span>
+              <span>Ships from Florida</span>
             </div>
           </div>
         </div>

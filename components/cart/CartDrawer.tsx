@@ -92,7 +92,6 @@ export function CartDrawer() {
               <span className="text-hag-text-2">Subtotal</span>
               <span className="font-bold text-hag-text">${subtotal}</span>
             </div>
-            <p className="text-[12px] text-hag-text-3">🚚 Free shipping on all orders</p>
             <Button
               className="w-full"
               disabled={status === "loading"}

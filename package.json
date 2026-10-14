@@ -10,7 +10,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "db:backup": "tsx scripts/backup-db.ts",
-    "catalog:import": "tsx scripts/import-catalogo-100.ts"
+    "catalog:import": "tsx scripts/import-catalogo-100.ts",
+    "inventory:import": "tsx scripts/import-inventario-real.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

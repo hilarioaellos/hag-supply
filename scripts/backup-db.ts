@@ -3,7 +3,7 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import { createClient } from "@supabase/supabase-js";
-import { mkdirSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 const db = new PrismaClient();
@@ -28,20 +28,20 @@ async function listAll(prefix: string): Promise<string[]> {
 async function main() {
   mkdirSync(outDir, { recursive: true });
 
-  const tables = {
-    user: await db.user.findMany(),
-    category: await db.category.findMany(),
-    product: await db.product.findMany(),
-    productMedia: await db.productMedia.findMany(),
-    cartItem: await db.cartItem.findMany(),
-    order: await db.order.findMany(),
-    orderItem: await db.orderItem.findMany(),
-  };
+  // SQL directo (no los modelos de Prisma): así respalda todas las columnas que existan en la base,
+  // aunque el cliente generado ya tenga campos de una migración que todavía no se aplicó.
+  const tables = ["User", "Category", "Product", "ProductMedia", "CartItem", "Order", "OrderItem"];
 
   const counts: Record<string, number> = {};
-  for (const [name, rows] of Object.entries(tables)) {
-    writeFileSync(join(outDir, `${name}.json`), JSON.stringify(rows, null, 2));
-    counts[name] = rows.length;
+  for (const table of tables) {
+    const rows = await db.$queryRawUnsafe<{ r: unknown }[]>(`SELECT row_to_json(t) AS r FROM "${table}" t`);
+    const [{ n }] = await db.$queryRawUnsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM "${table}"`);
+    const file = join(outDir, `${table}.json`);
+    writeFileSync(file, JSON.stringify(rows.map((row) => row.r), null, 2));
+    // Verificación: el archivo se vuelve a leer y debe tener tantas filas como la tabla.
+    const written = (JSON.parse(readFileSync(file, "utf8")) as unknown[]).length;
+    if (written !== n) throw new Error(`Respaldo INCOMPLETO: ${table} tiene ${n} filas y el archivo ${written}`);
+    counts[table] = n;
   }
   console.log("Tablas:", counts);
 
@@ -53,9 +53,14 @@ async function main() {
       console.log(`  ✗ ${path}: ${error.message}`);
       continue;
     }
+    const buffer = Buffer.from(await data.arrayBuffer());
+    if (buffer.length === 0) {
+      console.log(`  ✗ ${path}: archivo vacío`);
+      continue;
+    }
     const dest = join(outDir, "storage", BUCKET, path);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, Buffer.from(await data.arrayBuffer()));
+    writeFileSync(dest, buffer);
     ok++;
   }
   console.log(`Storage: ${ok}/${files.length} archivos descargados`);

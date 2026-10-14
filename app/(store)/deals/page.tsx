@@ -29,11 +29,11 @@ export default async function DealsPage({ searchParams }: Props) {
       {/* Header banner */}
       <div className="px-12 py-10 bg-hag-accent-dark text-white">
         <p className="text-[12px] font-bold uppercase tracking-widest text-white/70 mb-2">
-          Limited-time savings
+          Current offers
         </p>
         <h1 className="text-[36px] font-extrabold leading-tight mb-1">Deals &amp; Offers</h1>
         <p className="text-[15px] text-white/80">
-          {total} product{total !== 1 ? "s" : ""} on sale right now — updated weekly.
+          {total} product{total !== 1 ? "s" : ""} on sale right now.
         </p>
       </div>
 
@@ -64,7 +64,6 @@ export default async function DealsPage({ searchParams }: Props) {
         ) : (
           <div className="py-24 text-center">
             <p className="text-[17px] font-semibold text-hag-text">No deals available right now.</p>
-            <p className="text-[14px] text-hag-text-2 mt-1">Check back soon — new offers every week.</p>
           </div>
         )}
       </div>

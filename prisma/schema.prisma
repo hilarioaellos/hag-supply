@@ -68,11 +68,15 @@ model Product {
   slug         String        @unique
   description  String
   sku          String?       @unique
+  brand        String?
+  upc          String?
+  condition    String?
   price        Decimal       @db.Decimal(10, 2)
   comparePrice Decimal?      @db.Decimal(10, 2)
   stock        Int           @default(0)
   imageUrls    String[]
   badge        ProductBadge?
+  featured     Boolean       @default(false)
   categoryId   String
   category     Category      @relation(fields: [categoryId], references: [id])
   deletedAt    DateTime?
@@ -86,6 +90,7 @@ model Product {
   @@index([slug])
   @@index([badge])
   @@index([deletedAt])
+  @@index([featured])
 }
 
 model ProductMedia {

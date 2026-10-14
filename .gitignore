@@ -51,3 +51,7 @@ next-env.d.ts
 # configuración local de Claude Code y volcados de base de datos (sensibles)
 /.claude/settings.local.json
 *.dump
+
+# estado local de los importadores (necesario para --rollback; no se versiona)
+/data/catalogo-100/pre-import-state.json
+/data/inventario-real/pre-import-state.json

@@ -15,12 +15,6 @@ export async function CategoryNav() {
           {cat.name}
         </Link>
       ))}
-      <Link
-        href="/deals"
-        className="whitespace-nowrap font-bold text-hag-accent-dark hover:text-hag-accent transition-colors"
-      >
-        Deals &amp; Offers
-      </Link>
     </nav>
   );
 }

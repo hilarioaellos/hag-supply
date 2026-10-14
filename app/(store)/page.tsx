@@ -5,16 +5,39 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { getCategories } from "@/lib/data/categories";
 import { ProductCard, type ProductCardData } from "@/components/product/ProductCard";
-import { Decimal } from "@prisma/client/runtime/library";
 
+const cardSelect = {
+  id: true, name: true, slug: true, price: true,
+  comparePrice: true, media: { select: { url: true, type: true, order: true }, orderBy: { order: "asc" as const } }, badge: true, stock: true,
+};
+
+// Destacados: los marcados con featured, más nuevos primero.
 async function getFeaturedProducts(): Promise<ProductCardData[]> {
   try {
     const products = await db.product.findMany({
-      where: { deletedAt: null },
-      select: {
-        id: true, name: true, slug: true, price: true,
-        comparePrice: true, media: { select: { url: true, type: true, order: true }, orderBy: { order: "asc" } }, badge: true, stock: true,
-      },
+      where: { deletedAt: null, featured: true },
+      select: cardSelect,
+      take: 12,
+      orderBy: { createdAt: "desc" },
+    });
+
+    return products.map((p) => ({
+      ...p,
+      price: p.price.toString(),
+      comparePrice: p.comparePrice?.toString() ?? null,
+    }));
+  } catch (error) {
+    console.error("[home] getFeaturedProducts failed:", error);
+    return [];
+  }
+}
+
+// Resto del catálogo (sin repetir los destacados): primero los que tienen badge.
+async function getLatestProducts(): Promise<ProductCardData[]> {
+  try {
+    const products = await db.product.findMany({
+      where: { deletedAt: null, featured: false },
+      select: cardSelect,
       take: 24,
       orderBy: { createdAt: "desc" },
     });
@@ -28,15 +51,16 @@ async function getFeaturedProducts(): Promise<ProductCardData[]> {
       price: p.price.toString(),
       comparePrice: p.comparePrice?.toString() ?? null,
     }));
-  } catch {
+  } catch (error) {
+    console.error("[home] getLatestProducts failed:", error);
     return [];
   }
 }
 
 const BENEFITS = [
   {
-    label: "Fast Shipping",
-    desc: "Most orders arrive in 2-4 business days.",
+    label: "Ships from Florida",
+    desc: "Every order is packed and shipped from Florida, USA.",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
         <rect x="2" y="7" width="14" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
@@ -47,27 +71,8 @@ const BENEFITS = [
     ),
   },
   {
-    label: "Everything for Your Home",
-    desc: "One store for pantry, cleaning, tools and more.",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" stroke="currentColor" strokeWidth="1.6" fill="none" />
-      </svg>
-    ),
-  },
-  {
-    label: "Secure Checkout",
-    desc: "Encrypted payments, every order protected.",
-    icon: (
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <rect x="5" y="11" width="14" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M8 11V8a4 4 0 0 1 8 0v3" stroke="currentColor" strokeWidth="1.6" fill="none" />
-      </svg>
-    ),
-  },
-  {
-    label: "Weekly Deals",
-    desc: "New savings on essentials every week.",
+    label: "Real Inventory",
+    desc: "The stock you see is the stock we have on hand.",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
         <rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" />
@@ -77,22 +82,21 @@ const BENEFITS = [
     ),
   },
   {
-    label: "Customer Support",
-    desc: "Real people, ready to help 7 days a week.",
+    label: "New Products",
+    desc: "Every item is new, as described on its page.",
     icon: (
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-        <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.6" />
-        <path d="M9 10a3 3 0 1 1 4 2.8V14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" fill="none" />
-        <circle cx="13" cy="17" r="0.9" fill="currentColor" />
+        <path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z" stroke="currentColor" strokeWidth="1.6" fill="none" />
       </svg>
     ),
   },
 ];
 
 export default async function HomePage() {
-  const [categories, featured] = await Promise.all([
+  const [categories, featured, latest] = await Promise.all([
     getCategories(),
     getFeaturedProducts(),
+    getLatestProducts(),
   ]);
 
   return (
@@ -101,17 +105,17 @@ export default async function HomePage() {
       <section className="grid grid-cols-1 md:grid-cols-2" style={{ background: "var(--color-hag-accent-dark)", color: "white" }}>
         <div className="px-6 py-10 md:px-16 md:py-[24px] flex flex-col justify-center gap-5">
           <span className="uppercase tracking-[0.1em] text-[11px] font-bold text-white/60">
-            Trusted by households and businesses nationwide
+            Ships from Florida
           </span>
           <h1 className="m-0 text-[36px] md:text-[54px] leading-[1.08] font-extrabold text-white max-w-[560px]">
-            Everything your home needs, delivered fast.
+            Real products, in stock, shipped from Florida.
           </h1>
           <p className="m-0 text-[15px] md:text-[17px] leading-relaxed text-white/75 max-w-[460px]">
-            Pantry staples, cleaning supplies, tools, decor and outdoor gear — one reliable source, thousands of products in stock.
+            A small, hand-picked selection of collectibles, kitchen finds and wellness essentials — every item listed is in our inventory.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 mt-3">
             <Link
-              href="/category/home-and-kitchen"
+              href="#products"
               className="text-center px-[30px] py-[15px] rounded-lg bg-hag-accent text-[15px] font-bold shadow-lg hover:bg-hag-accent-dark transition-all"
               style={{ color: "white" }}
             >
@@ -132,10 +136,6 @@ export default async function HomePage() {
             className="absolute inset-0 w-full h-full object-cover opacity-40"
           />
           <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, var(--color-hag-accent-dark)/0 0%, var(--color-hag-accent)/20 100%)" }} />
-          <div className="relative z-10 text-center px-12">
-            <p className="text-white/90 text-[22px] font-bold leading-snug mb-2">10,000+ products</p>
-            <p className="text-white/60 text-[15px]">Ready to ship today</p>
-          </div>
         </div>
       </section>
 
@@ -143,9 +143,6 @@ export default async function HomePage() {
       <section id="categories" className="px-4 sm:px-6 lg:px-12 py-10 md:py-16 bg-hag-bg">
         <div className="flex items-baseline justify-between mb-7">
           <h2 className="m-0 text-[22px] md:text-[26px] font-bold text-hag-text">Shop by Category</h2>
-          <Link href="/category/home-and-kitchen" className="text-[13px] md:text-[14px] font-semibold text-hag-accent-dark hover:text-hag-accent transition-colors">
-            View all →
-          </Link>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-5">
@@ -173,36 +170,34 @@ export default async function HomePage() {
               </div>
             </Link>
           ))}
-
-          {/* Deals card — siempre al final */}
-          <Link
-            href="/deals"
-            className="border-[1.5px] border-hag-accent rounded-[10px] overflow-hidden hover:shadow-md transition-shadow"
-          >
-            <div className="h-[120px] relative overflow-hidden">
-              <img
-                src="https://picsum.photos/200/120?random=101"
-                alt="Deals and Offers"
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="px-3 py-3.5 text-[14px] font-bold text-hag-accent-dark text-center">
-              Deals and Offers
-            </div>
-          </Link>
         </div>
       </section>
 
       {/* FEATURED PRODUCTS */}
-      <section className="px-4 sm:px-6 lg:px-12 py-10 md:py-16 bg-hag-bg-alt">
-        <div className="mb-7">
-          <h2 className="m-0 mb-1.5 text-[22px] md:text-[26px] font-bold text-hag-text">Featured Products</h2>
-          <p className="m-0 text-[14px] md:text-[15px] text-hag-text-2">Popular picks across the store, restocked weekly.</p>
-        </div>
-
-        {featured.length > 0 ? (
+      {featured.length > 0 && (
+        <section id="featured" className="px-4 sm:px-6 lg:px-12 py-10 md:py-16 bg-hag-bg">
+          <div className="mb-7">
+            <h2 className="m-0 mb-1.5 text-[22px] md:text-[26px] font-bold text-hag-text">Featured Products</h2>
+            <p className="m-0 text-[14px] md:text-[15px] text-hag-text-2">Hand-picked items from our own inventory.</p>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-[18px]">
             {featured.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* OUR PRODUCTS */}
+      <section id="products" className="px-4 sm:px-6 lg:px-12 py-10 md:py-16 bg-hag-bg-alt">
+        <div className="mb-7">
+          <h2 className="m-0 mb-1.5 text-[22px] md:text-[26px] font-bold text-hag-text">Our Products</h2>
+          <p className="m-0 text-[14px] md:text-[15px] text-hag-text-2">Everything we currently have in stock.</p>
+        </div>
+
+        {latest.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 md:gap-[18px]">
+            {latest.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
@@ -222,7 +217,7 @@ export default async function HomePage() {
       </section>
 
       {/* BENEFITS */}
-      <section className="px-4 sm:px-6 lg:px-12 py-10 md:py-[52px] bg-hag-bg border-t border-b border-hag-border grid grid-cols-2 md:flex md:justify-between gap-6">
+      <section className="px-4 sm:px-6 lg:px-12 py-10 md:py-[52px] bg-hag-bg border-t border-b border-hag-border grid grid-cols-1 sm:grid-cols-3 justify-items-center gap-6">
         {BENEFITS.map((b) => (
           <div key={b.label} className="flex flex-col items-center text-center gap-2.5 max-w-[200px]">
             <div className="w-[52px] h-[52px] rounded-full bg-hag-accent-soft flex items-center justify-center text-hag-accent-dark">
@@ -232,34 +227,6 @@ export default async function HomePage() {
             <p className="text-[12.5px] text-hag-text-2 leading-relaxed m-0">{b.desc}</p>
           </div>
         ))}
-      </section>
-
-      {/* PROMO BLOCK */}
-      <section className="grid grid-cols-1 md:grid-cols-[1.1fr_1fr] bg-hag-accent-dark text-white">
-        <div className="px-6 py-10 md:px-16 md:py-16 flex flex-col justify-center gap-4">
-          <span className="uppercase tracking-[0.08em] text-[12px] font-bold text-white/75">
-            Seasonal Savings Event
-          </span>
-          <h2 className="m-0 text-[28px] md:text-[38px] font-extrabold leading-[1.15] max-w-[480px]">
-            Everything for Your Home, in One Place
-          </h2>
-          <p className="m-0 text-[14px] md:text-[15.5px] leading-relaxed text-white/85 max-w-[440px]">
-            Save on top categories this month — from patio essentials to power tools.
-          </p>
-          <Link
-            href="/deals"
-            className="mt-2 self-start px-7 py-3.5 rounded-lg bg-hag-accent text-white text-[15px] font-bold hover:bg-hag-accent-dark transition-colors"
-          >
-            Shop Now
-          </Link>
-        </div>
-        <div className="hidden md:flex items-center justify-center min-h-[360px] relative overflow-hidden">
-          <img
-            src="https://images.unsplash.com/photo-1607083206869-4c7672e72a8a?w=900&q=85"
-            alt="Ofertas Especiales"
-            className="absolute inset-0 w-full h-full object-cover opacity-60"
-          />
-        </div>
       </section>
     </div>
   );

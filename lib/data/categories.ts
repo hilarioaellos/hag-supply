@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 export const getCategories = cache(async () => {
   try {
     return await db.category.findMany({
+      where: { products: { some: { deletedAt: null } } },
       select: { name: true, slug: true, imageUrl: true },
       orderBy: { name: "asc" },
     });

@@ -17,7 +17,7 @@ export default async function RegisterPage() {
           </span>
           <h1 className="text-3xl font-bold text-hag-text">Create your account</h1>
           <p className="text-sm text-hag-text-2">
-            Start shopping — fast delivery, thousands of products.
+            Create an account to save your cart and track your orders.
           </p>
         </div>
 

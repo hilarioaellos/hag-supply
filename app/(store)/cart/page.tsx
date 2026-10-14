@@ -97,8 +97,6 @@ export default async function CartPage() {
                 <span>${subtotal.toFixed(2)}</span>
               </div>
 
-              <p className="text-[12px] text-hag-text-2">🚚 Free shipping on all orders</p>
-
               <Link
                 href="/checkout"
                 className="block w-full py-3.5 rounded-xl bg-hag-accent text-white text-[15px] font-bold text-center hover:bg-hag-accent-dark transition-colors"

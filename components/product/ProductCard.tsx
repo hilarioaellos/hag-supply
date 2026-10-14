@@ -14,16 +14,6 @@ export interface ProductCardData {
   stock: number;
 }
 
-function StarRating() {
-  return (
-    <div className="flex items-center gap-1">
-      <span className="text-[12px] text-hag-star">★★★★</span>
-      <span className="text-[12px] text-hag-border">★</span>
-      <span className="text-[12px] text-hag-text-3">(—)</span>
-    </div>
-  );
-}
-
 export function ProductCard({ product }: { product: ProductCardData }) {
   const img = product.media[0]?.url ?? "/placeholder-product.svg";
   const price = parseFloat(product.price);
@@ -56,7 +46,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         {product.name}
       </Link>
 
-      <StarRating />
+      <span className="text-[12px] text-hag-text-3">No reviews yet</span>
 
       <div className="flex items-baseline gap-2">
         <span className="text-[17px] font-bold text-hag-text">${price.toFixed(2)}</span>
