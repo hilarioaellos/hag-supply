@@ -297,3 +297,48 @@ function oversellFailure(refund: OversellResult): CheckoutResult {
   }
   return fail(409, "The item became unavailable and your payment is being refunded.");
 }
+
+export type PaymentReconciliation = { status: OrderStatus; paymentIntentStatus: string | null };
+
+// Reconcile al volver de Stripe (/order-confirmation/[id]). Mientras no exista el webhook (HAG-95) es lo que
+// confirma la orden; después queda como respaldo idempotente. A diferencia de startCheckout, NUNCA cancela:
+// el cliente puede estar a mitad de una autenticación (3DS) o de un pago en proceso.
+export async function reconcileOrderPayment(orderId: string, client: StripeClient = stripe): Promise<PaymentReconciliation> {
+  const order = await db.order.findUniqueOrThrow({
+    where: { id: orderId },
+    select: { status: true, stripePaymentIntentId: true },
+  });
+
+  // Reembolso por oversell sin concluir (refund pending o error transitorio en un intento anterior): se
+  // retoma con el mismo flujo, que reutiliza el stripeRefundId guardado y no duplica el refund.
+  if (order.status === "OVERSELL_REFUND_PENDING") {
+    try {
+      await handleOversell(orderId, client);
+    } catch (error) {
+      console.error(`[checkout] reintento de refund de la orden ${orderId} falló:`, error instanceof Error ? error.message : error);
+    }
+    const { status } = await db.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
+    return { status, paymentIntentStatus: null };
+  }
+
+  if (order.status !== "PENDING_PAYMENT" || !order.stripePaymentIntentId) {
+    return { status: order.status, paymentIntentStatus: null };
+  }
+
+  let paymentIntentStatus: string | null = null;
+  try {
+    const paymentIntent = await client.paymentIntents.retrieve(order.stripePaymentIntentId);
+    paymentIntentStatus = paymentIntent.status;
+    if (paymentIntent.status === "succeeded") {
+      const result = await confirmOrder(orderId);
+      if (result === "confirmed") await sendOrderConfirmation(orderId);
+      if (result === "oversell") await handleOversell(orderId, client);
+    }
+  } catch (error) {
+    // Stripe no responde: se muestra el estado actual y el cliente puede recargar.
+    console.error(`[checkout] reconcile de la orden ${orderId} falló:`, error instanceof Error ? error.message : error);
+  }
+
+  const { status } = await db.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
+  return { status, paymentIntentStatus };
+}

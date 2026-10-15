@@ -30,6 +30,7 @@ type Lib = {
   startCheckout: typeof import("@/lib/checkout").startCheckout;
   validateShipping: typeof import("@/lib/checkout").validateShipping;
   handleOversell: typeof import("@/lib/oversell").handleOversell;
+  reconcileOrderPayment: typeof import("@/lib/checkout").reconcileOrderPayment;
 };
 
 const SHIPPING = { name: "Test Buyer", line1: "100 Main St", line2: null, city: "Miami", state: "FL", zip: "33101" };
@@ -54,6 +55,7 @@ async function main() {
     startCheckout: (await import("@/lib/checkout")).startCheckout,
     validateShipping: (await import("@/lib/checkout")).validateShipping,
     handleOversell: (await import("@/lib/oversell")).handleOversell,
+    reconcileOrderPayment: (await import("@/lib/checkout")).reconcileOrderPayment,
   };
   const { db, stripe } = lib;
 
@@ -526,6 +528,123 @@ async function main() {
     const r = await lib.startCheckout(user.id, SHIPPING);
     assert.equal(armedOrderId, null, "el middleware debió dispararse");
     assert.deepEqual(r, { kind: "paid", orderId: order.id });
+  });
+
+  console.log("\nHAG-94 — reconcileOrderPayment (retorno de Stripe a /order-confirmation)");
+
+  const pendingWithPayment = async (tag: string, stock = 5) => {
+    const user = await newUser();
+    const p = await mk(tag, 20, stock);
+    await cart(user.id, [{ productId: p.id, quantity: 1 }]);
+    const r = await lib.startCheckout(user.id, SHIPPING);
+    if (r.kind !== "payment") throw new Error(JSON.stringify(r));
+    return { user, product: p, order: await orderOf(r.orderId) };
+  };
+
+  await test("pago succeeded → PAYMENT_CONFIRMED, stock descontado, carrito vacío; segunda llamada idempotente", async () => {
+    const { user, product, order } = await pendingWithPayment("H1");
+    await pay(order.stripePaymentIntentId!);
+    const r1 = await lib.reconcileOrderPayment(order.id);
+    assert.deepEqual(r1, { status: "PAYMENT_CONFIRMED", paymentIntentStatus: "succeeded" });
+    assert.equal(await stockOf(product.id), 4);
+    assert.equal(await db.cartItem.count({ where: { userId: user.id } }), 0);
+    const r2 = await lib.reconcileOrderPayment(order.id);
+    assert.deepEqual(r2, { status: "PAYMENT_CONFIRMED", paymentIntentStatus: null });
+    assert.equal(await stockOf(product.id), 4, "no se descuenta dos veces");
+  });
+
+  await test("pago sin completar (requires_payment_method) → sigue PENDING_PAYMENT y NO se cancela nada", async () => {
+    const { order } = await pendingWithPayment("H2");
+    const r = await lib.reconcileOrderPayment(order.id);
+    assert.deepEqual(r, { status: "PENDING_PAYMENT", paymentIntentStatus: "requires_payment_method" });
+    assert.equal((await stripe.paymentIntents.retrieve(order.stripePaymentIntentId!)).status, "requires_payment_method");
+  });
+
+  await test("tarjeta rechazada (pm_card_chargeDeclined) → sigue PENDING_PAYMENT, se puede reintentar", async () => {
+    const { order } = await pendingWithPayment("H3");
+    await stripe.paymentIntents
+      .confirm(order.stripePaymentIntentId!, { payment_method: "pm_card_chargeDeclined", return_url: "https://example.com/r" })
+      .catch(() => null);
+    const r = await lib.reconcileOrderPayment(order.id);
+    assert.equal(r.status, "PENDING_PAYMENT");
+    assert.equal(r.paymentIntentStatus, "requires_payment_method");
+  });
+
+  await test("pagado pero sin stock al volver → refund real en Stripe → CANCELLED_REFUNDED", async () => {
+    const { product, order } = await pendingWithPayment("H4", 1);
+    await pay(order.stripePaymentIntentId!);
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    const r = await lib.reconcileOrderPayment(order.id);
+    assert.equal(r.status, "CANCELLED_REFUNDED");
+    assert.equal((await stripe.refunds.list({ payment_intent: order.stripePaymentIntentId! })).data.length, 1);
+  });
+
+  console.log("\nHAG-94 NO-GO v1 · Mayor 1 — recargar la confirmación retoma un refund pendiente");
+
+  const refundsOf = async (paymentIntentId: string) => (await stripe.refunds.list({ payment_intent: paymentIntentId })).data;
+
+  await test("refund `pending` real (pm_card_pendingRefund = 4000 0000 0000 7726): recargar reutiliza el mismo refund; al pasar a succeeded → CANCELLED_REFUNDED", async () => {
+    const { product, order } = await pendingWithPayment("K1", 1);
+    await stripe.paymentIntents.confirm(order.stripePaymentIntentId!, { payment_method: "pm_card_pendingRefund", return_url: "https://example.com/r" });
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+
+    const first = await lib.reconcileOrderPayment(order.id);
+    assert.equal(first.status, "OVERSELL_REFUND_PENDING");
+    const saved = (await orderOf(order.id)).stripeRefundId;
+    assert.ok(saved);
+    assert.equal((await stripe.refunds.retrieve(saved!)).status, "pending");
+
+    // Recarga: retoma el refund guardado, no crea otro.
+    const reload = await lib.reconcileOrderPayment(order.id);
+    assert.equal(reload.status, "OVERSELL_REFUND_PENDING");
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+
+    // Stripe lo concluye "más tarde": solo refunds.retrieve responde succeeded; todo lo demás es real.
+    const later = wrap({ refunds: { retrieve: async (id: string) => ({ ...(await stripe.refunds.retrieve(id)), status: "succeeded" }) } });
+    const done = await lib.reconcileOrderPayment(order.id, later);
+    assert.equal(done.status, "CANCELLED_REFUNDED");
+    assert.equal((await orderOf(order.id)).stripeRefundId, saved);
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1, "sin refunds duplicados");
+  });
+
+  await test("error transitorio al crear el refund → la recarga lo reintenta con éxito, un solo refund en Stripe", async () => {
+    const { product, order } = await pendingWithPayment("K2", 1);
+    await pay(order.stripePaymentIntentId!);
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+
+    const flaky = wrap({ refunds: { create: async () => { throw new Error("ECONNRESET simulado"); } } });
+    const first = await lib.reconcileOrderPayment(order.id, flaky);
+    assert.equal(first.status, "OVERSELL_REFUND_PENDING");
+    assert.equal((await orderOf(order.id)).stripeRefundId, null);
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 0);
+
+    const retry = await lib.reconcileOrderPayment(order.id); // Stripe test real
+    assert.equal(retry.status, "CANCELLED_REFUNDED");
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+    assert.equal((await lib.reconcileOrderPayment(order.id)).status, "CANCELLED_REFUNDED");
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1, "recargas posteriores no crean otro refund");
+  });
+
+  await test("(informativo) refund pending real sondeado hasta 90 s sin simulación", async () => {
+    const { product, order } = await pendingWithPayment("K3", 1);
+    await stripe.paymentIntents.confirm(order.stripePaymentIntentId!, { payment_method: "pm_card_pendingRefund", return_url: "https://example.com/r" });
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    let status = (await lib.reconcileOrderPayment(order.id)).status;
+    const start = Date.now();
+    while (status === "OVERSELL_REFUND_PENDING" && Date.now() - start < 90_000) {
+      await new Promise((r) => setTimeout(r, 10_000));
+      status = (await lib.reconcileOrderPayment(order.id)).status;
+    }
+    console.log(`      → tras ${Math.round((Date.now() - start) / 1000)} s: ${status}; refunds en Stripe: ${(await refundsOf(order.stripePaymentIntentId!)).length}`);
+    assert.ok(["OVERSELL_REFUND_PENDING", "CANCELLED_REFUNDED"].includes(status));
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+  });
+
+  await test("Stripe no responde → devuelve el estado actual sin tocar la orden", async () => {
+    const { order } = await pendingWithPayment("H5");
+    const down = wrap({ paymentIntents: { retrieve: async () => { throw new Error("timeout simulado"); } } });
+    const r = await lib.reconcileOrderPayment(order.id, down);
+    assert.deepEqual(r, { status: "PENDING_PAYMENT", paymentIntentStatus: null });
   });
 
   console.log(`\n${passed} pruebas OK${process.exitCode ? " — HAY FALLAS" : ""}`);

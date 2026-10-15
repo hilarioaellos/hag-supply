@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ShippingForm, type ShippingValues } from "./ShippingForm";
+import { StripePayment } from "./StripePayment";
 
 type Props = {
   states: { code: string; name: string }[];
@@ -17,8 +18,10 @@ export function CheckoutForm({ states, defaultName }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof ShippingValues, string>>>({});
   const [payment, setPayment] = useState<PaymentStep | null>(null);
+  const [lastShipping, setLastShipping] = useState<ShippingValues | null>(null);
 
   async function handleSubmit(shipping: ShippingValues) {
+    setLastShipping(shipping);
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
@@ -49,13 +52,24 @@ export function CheckoutForm({ states, defaultName }: Props) {
 
   if (payment) {
     return (
-      <section className="bg-white border border-hag-border rounded-2xl p-6 flex flex-col gap-3">
-        <h2 className="text-[18px] font-bold text-hag-text">Payment</h2>
-        <p className="text-[14px] text-hag-text-2">
-          Order <span className="font-mono text-hag-text">{payment.orderNumber}</span> · Total ${payment.total}
-        </p>
-        {/* HAG-94: aquí se monta StripePayment (Stripe Elements) con payment.clientSecret. */}
-        <p className="text-[14px] text-hag-text-2">Card payment is not available yet.</p>
+      <section className="bg-white border border-hag-border rounded-2xl p-6 flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-[18px] font-bold text-hag-text">Payment</h2>
+            <p className="text-[14px] text-hag-text-2 mt-1">
+              Order <span className="font-mono text-hag-text">{payment.orderNumber}</span>
+            </p>
+          </div>
+          {/* Volver a la dirección: el próximo envío cancela este PaymentIntent y crea otro (caso B). */}
+          <button
+            type="button"
+            onClick={() => setPayment(null)}
+            className="text-[13px] text-hag-accent hover:text-hag-accent-dark transition-colors shrink-0"
+          >
+            Edit address
+          </button>
+        </div>
+        <StripePayment orderId={payment.orderId} clientSecret={payment.clientSecret} total={payment.total} />
       </section>
     );
   }
@@ -64,6 +78,7 @@ export function CheckoutForm({ states, defaultName }: Props) {
     <ShippingForm
       states={states}
       defaultName={defaultName}
+      initialValues={lastShipping}
       submitting={submitting}
       error={error}
       fieldErrors={fieldErrors}

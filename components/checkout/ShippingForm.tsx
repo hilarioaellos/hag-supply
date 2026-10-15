@@ -16,14 +16,15 @@ export type ShippingValues = {
 type Props = {
   states: { code: string; name: string }[];
   defaultName: string;
+  initialValues?: ShippingValues | null;
   submitting: boolean;
   error: string | null;
   fieldErrors: Partial<Record<keyof ShippingValues, string>>;
   onSubmit: (values: ShippingValues) => void;
 };
 
-export function ShippingForm({ states, defaultName, submitting, error, fieldErrors, onSubmit }: Props) {
-  const [values, setValues] = useState<ShippingValues>({
+export function ShippingForm({ states, defaultName, initialValues, submitting, error, fieldErrors, onSubmit }: Props) {
+  const [values, setValues] = useState<ShippingValues>(initialValues ?? {
     name: defaultName,
     line1: "",
     line2: "",
@@ -47,9 +48,10 @@ export function ShippingForm({ states, defaultName, submitting, error, fieldErro
         <p className="text-[13px] text-hag-text-2 mt-1">We currently ship within the United States only.</p>
       </div>
 
-      <Input id="ship-name" label="Full name" autoComplete="name" required value={values.name} onChange={set("name")} error={fieldErrors.name} />
-      <Input id="ship-line1" label="Address" autoComplete="address-line1" required value={values.line1} onChange={set("line1")} error={fieldErrors.line1} />
+      <Input className="w-full" id="ship-name" label="Full name" autoComplete="name" required value={values.name} onChange={set("name")} error={fieldErrors.name} />
+      <Input className="w-full" id="ship-line1" label="Address" autoComplete="address-line1" required value={values.line1} onChange={set("line1")} error={fieldErrors.line1} />
       <Input
+        className="w-full"
         id="ship-line2"
         label="Apartment, suite, etc. (optional)"
         autoComplete="address-line2"
@@ -58,8 +60,8 @@ export function ShippingForm({ states, defaultName, submitting, error, fieldErro
         error={fieldErrors.line2}
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_140px] gap-4">
-        <Input id="ship-city" label="City" autoComplete="address-level2" required value={values.city} onChange={set("city")} error={fieldErrors.city} />
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_140px] gap-4 [&>*]:min-w-0">
+        <Input className="w-full" id="ship-city" label="City" autoComplete="address-level2" required value={values.city} onChange={set("city")} error={fieldErrors.city} />
 
         <div className="flex flex-col gap-1">
           <label htmlFor="ship-state" className="text-sm font-500 text-hag-text">State</label>
@@ -69,7 +71,7 @@ export function ShippingForm({ states, defaultName, submitting, error, fieldErro
             required
             value={values.state}
             onChange={set("state")}
-            className={`h-10 rounded-lg border px-3 text-sm outline-none bg-hag-bg text-hag-text ${
+            className={`w-full h-10 rounded-lg border px-3 text-sm outline-none bg-hag-bg text-hag-text ${
               fieldErrors.state
                 ? "border-hag-sale focus:ring-1 focus:ring-hag-sale"
                 : "border-hag-border focus:border-hag-accent focus:ring-1 focus:ring-hag-accent"
@@ -84,6 +86,7 @@ export function ShippingForm({ states, defaultName, submitting, error, fieldErro
         </div>
 
         <Input
+          className="w-full"
           id="ship-zip"
           label="ZIP code"
           autoComplete="postal-code"
