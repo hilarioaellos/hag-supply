@@ -30,7 +30,7 @@ const TERMINAL = new Set<OrderStatus>([
 export async function handleStripeEvent(event: Stripe.Event, client: StripeClient = stripe): Promise<WebhookOutcome> {
   switch (event.type) {
     case "payment_intent.succeeded":
-      return onPaymentSucceeded(event.data.object, client);
+      return onPaymentSucceeded(event.data.object, event.livemode, client);
     case "refund.updated":
     case "refund.failed":
       return onRefundChanged(event.data.object, client);
@@ -39,7 +39,7 @@ export async function handleStripeEvent(event: Stripe.Event, client: StripeClien
   }
 }
 
-async function onPaymentSucceeded(paymentIntent: Stripe.PaymentIntent, client: StripeClient): Promise<WebhookOutcome> {
+async function onPaymentSucceeded(paymentIntent: Stripe.PaymentIntent, livemode: boolean, client: StripeClient): Promise<WebhookOutcome> {
   const order = await db.order.findUnique({
     where: { stripePaymentIntentId: paymentIntent.id },
     select: { id: true, status: true },
@@ -47,10 +47,11 @@ async function onPaymentSucceeded(paymentIntent: Stripe.PaymentIntent, client: S
 
   if (!order) {
     const orderId = paymentIntent.metadata?.orderId;
-    // HAG-124: la cuenta de Stripe de prueba es compartida. Un pago creado por OTRA instalación (p. ej. las
-    // pruebas locales) no tiene orden aquí y no es un incidente de esta tienda: se ignora sin avisar.
+    // HAG-124: la cuenta de Stripe de PRUEBA es compartida. Un pago de prueba creado por OTRA instalación
+    // (p. ej. las pruebas locales) no tiene orden aquí y no es un incidente de esta tienda: se ignora sin avisar.
+    // HAG-125: solo en modo test. En live un pago cobrado sin orden siempre avisa, aunque traiga otra marca.
     const origin = paymentIntent.metadata?.origin;
-    if (origin && origin !== appOrigin()) {
+    if (!livemode && origin && origin !== appOrigin()) {
       console.info(`[stripe-webhook] PaymentIntent ${paymentIntent.id} de otro origen (${origin}); ignorado`);
       return { action: "ignored:foreign_origin" };
     }

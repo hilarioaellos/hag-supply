@@ -1240,16 +1240,17 @@ async function main() {
 
   console.log("\nHAG-103 NO-GO v1 · Observaciones — presupuesto de tiempo y reintento desde la confirmación");
 
-  await test("deliverPending con budgetMs no empieza envíos nuevos pasado el presupuesto", async () => {
+  await test("deliverPending con budgetMs termina dentro del presupuesto (el envío en curso se recorta)", async () => {
     await db.emailOutbox.updateMany({ where: { status: "PENDING" }, data: { status: "FAILED" } }); // aislar el lote
     const ids = [] as string[];
     for (const t of ["B1", "B2", "B3", "B4"]) ids.push(await queuedConfirmation(t));
     const { sent, sender } = fakeSender({ delayMs: 300 });
     const started = Date.now();
-    const counts = await lib.emails.deliverPending({ sender, budgetMs: 450 });
+    process.env.EMAIL_MIN_SEND_WINDOW_MS = "100";
+    const counts = await lib.emails.deliverPending({ sender, budgetMs: 450 }).finally(() => delete process.env.EMAIL_MIN_SEND_WINDOW_MS);
     assert.ok(counts.sent >= 1 && counts.sent <= 2, JSON.stringify(counts));
     assert.equal(sent.length, counts.sent);
-    assert.ok(Date.now() - started < 1000);
+    assert.ok(Date.now() - started < 450 + 200, `tardó ${Date.now() - started} ms`);
     // Cada compra encola 2 emails (confirmación + aviso de venta, HAG-123): 8 en total.
     assert.equal(await db.emailOutbox.count({ where: { status: "PENDING" } }), 8 - counts.sent);
   });
@@ -1362,6 +1363,322 @@ async function main() {
     const e = evt("payment_intent.succeeded", { id: "pi_own_origin", object: "payment_intent", status: "succeeded", metadata: { orderId: "y", origin: own } });
     assert.equal((await lib.handleStripeEvent(e)).action, "orphan_payment");
     assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_own_origin" } }), 1);
+  });
+
+  console.log("\nHAG-125 — la excepción de origen solo aplica en modo test");
+
+  await test("evento LIVE de pago sin orden con OTRO origen → avisa igual (no se silencia)", async () => {
+    const e = { ...evt("payment_intent.succeeded", { id: "pi_live_foreign", object: "payment_intent", status: "succeeded", metadata: { orderId: "z", origin: "otra-instalacion.example" } }), livemode: true } as AnyEvent;
+    assert.equal((await lib.handleStripeEvent(e)).action, "orphan_payment");
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_live_foreign" } }), 1);
+  });
+
+  console.log("\nHAG-121 — reencolado controlado de emails FAILED");
+
+  const failedEmail = async (tag: string) => {
+    const id = await queuedConfirmation(tag);
+    await db.emailOutbox.update({ where: { id }, data: { status: "FAILED", attempts: 8, lastError: "Resend: 503 (simulado)" } });
+    return id;
+  };
+
+  await test("requeueFailedEmail: FAILED → PENDING con intentos a cero y registra quién/cuándo; luego se envía", async () => {
+    const id = await failedEmail("Q1");
+    assert.equal(await lib.emails.requeueFailedEmail(id, "admin@test.local"), true);
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(row.status, "PENDING");
+    assert.equal(row.attempts, 0);
+    assert.equal(row.requeuedBy, "admin@test.local");
+    assert.ok(row.requeuedAt);
+    assert.equal(row.requeueCount, 1);
+    assert.equal(await lib.emails.deliverEmail(id, fakeSender().sender), "sent");
+  });
+
+  await test("requeue de un email que NO está FAILED (PENDING o SENT) → no hace nada", async () => {
+    const pendingId = await queuedConfirmation("Q2");
+    assert.equal(await lib.emails.requeueFailedEmail(pendingId, "admin@test.local"), false);
+    assert.equal(await lib.emails.deliverEmail(pendingId, fakeSender().sender), "sent");
+    assert.equal(await lib.emails.requeueFailedEmail(pendingId, "admin@test.local"), false);
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id: pendingId } });
+    assert.equal(row.status, "SENT");
+    assert.equal(row.requeueCount, 0);
+  });
+
+  await test("dos admins reintentan el mismo FAILED a la vez → un solo reencolado", async () => {
+    const id = await failedEmail("Q3");
+    const results = await Promise.all([lib.emails.requeueFailedEmail(id, "a@test.local"), lib.emails.requeueFailedEmail(id, "b@test.local")]);
+    assert.deepEqual([...results].sort(), [false, true]);
+    assert.equal((await db.emailOutbox.findUniqueOrThrow({ where: { id } })).requeueCount, 1);
+  });
+
+  await test("getOutboxHealth cuenta FAILED y atrasados (PENDING vencido > 30 min o SENDING con lock vencido)", async () => {
+    await db.emailOutbox.updateMany({ where: { status: { in: ["PENDING", "SENDING", "FAILED"] } }, data: { status: "SENT" } }); // aislar
+    await failedEmail("Q4");
+    const late = await queuedConfirmation("Q5");
+    await db.emailOutbox.update({ where: { id: late }, data: { nextAttemptAt: new Date(Date.now() - 45 * 60 * 1000) } });
+    const stale = await queuedConfirmation("Q6");
+    await db.emailOutbox.update({ where: { id: stale }, data: { status: "SENDING", lockedUntil: new Date(Date.now() - 1000) } });
+    await queuedConfirmation("Q7"); // pendiente reciente: no cuenta como atrasado
+    const h = await lib.emails.getOutboxHealth();
+    assert.equal(h.failed, 1);
+    assert.equal(h.overdue, 2);
+    assert.ok(h.oldestOverdueAt);
+  });
+
+  console.log("\nHAG-122 — cron con presupuesto y monitoreo");
+
+  await test("cron con emails fallidos → responde salud y avisa UNA vez por día (dedupe)", async () => {
+    const saved = process.env.CRON_SECRET;
+    const call = () => lib.cronGET(new Request("http://localhost/api/cron/email-outbox", { headers: { authorization: `Bearer ${saved}` } }));
+    const r1 = await call();
+    assert.equal(r1.status, 200);
+    const body = await r1.json();
+    assert.ok(body.health && typeof body.health.failed === "number");
+    assert.ok(body.health.failed >= 1, "hay al menos el FAILED de la prueba anterior");
+    await call();
+    const day = new Date().toISOString().slice(0, 10);
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: `admin:outbox-health:${day}` } }), 1);
+  });
+
+  console.log("\nHAG-122 NO-GO v1 — deadline compartido por toda la petición");
+
+  // Las rutas usan el proveedor real (Resend SDK → fetch). Se intercepta solo api.resend.com con una latencia o
+  // un error programados, en tiempo REAL: el timeout de cada envío y el deadline se ejercitan de verdad. Las
+  // ventanas se achican por env (solo pueden achicarse) para no esperar 45 s.
+  const realFetch = globalThis.fetch;
+  let resendCalls = 0;
+  const withResend = async (opts: { delayMs?: number; delays?: number[]; status?: number }, fn: () => Promise<void>) => {
+    resendCalls = 0;
+    process.env.RESEND_API_KEY = "re_test_offline_only";
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.includes("api.resend.com")) return realFetch(input, init);
+      const n = ++resendCalls;
+      await new Promise((r) => setTimeout(r, opts.delays?.[n - 1] ?? opts.delayMs ?? 0));
+      return opts.status && opts.status >= 400
+        ? Response.json({ name: "internal_server_error", message: "simulado" }, { status: opts.status })
+        : Response.json({ id: `re_offline_${n}` });
+    }) as typeof fetch;
+    try {
+      await fn();
+    } finally {
+      globalThis.fetch = realFetch;
+      delete process.env.RESEND_API_KEY;
+    }
+  };
+  const withEnv = async (vars: Record<string, string>, fn: () => Promise<void>) => {
+    const saved = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, vars);
+    try {
+      await fn();
+    } finally {
+      for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  };
+  const isolateOutbox = () =>
+    db.emailOutbox.updateMany({ where: { status: { in: ["PENDING", "SENDING"] } }, data: { status: "SENT" } });
+  const backlog = async (tag: string, n: number) => {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      const row = await db.emailOutbox.create({
+        data: { dedupeKey: `test-backlog:${tag}:${i}`, kind: "ADMIN_ALERT", to: "owner@test.local", subject: `Backlog ${tag} ${i}`, html: "x", text: "x" },
+      });
+      ids.push(row.id);
+    }
+    return ids;
+  };
+  const cronCall = () =>
+    lib.cronGET(new Request("http://localhost/api/cron/email-outbox", { headers: { authorization: `Bearer ${process.env.CRON_SECRET}` } }));
+  const timed = async <T,>(fn: () => Promise<T>) => {
+    const t0 = Date.now();
+    const value = await fn();
+    return { value, ms: Date.now() - t0 };
+  };
+  // Escala de prueba: ventana 3 s, envío máx. 1,5 s, ventana mínima 0,3 s. Holgura para base y respuesta: 1 s.
+  const SCALE = { EMAIL_REQUEST_WINDOW_MS: "3000", EMAIL_SEND_TIMEOUT_MS: "1500", EMAIL_MIN_SEND_WINDOW_MS: "300" };
+  const SLACK_MS = 1000;
+
+  await test("ventanas de las rutas: caben en su maxDuration con reserva ≥ 10 s; el override de pruebas solo achica", async () => {
+    const cronMax = (await import("@/app/api/cron/email-outbox/route")).maxDuration * 1000;
+    const hookMax = (await import("@/app/api/webhooks/stripe/route")).maxDuration * 1000;
+    assert.ok(cronMax - lib.emails.CRON_EMAIL_WINDOW_MS >= 10_000, "reserva del cron");
+    assert.ok(hookMax - lib.emails.WEBHOOK_EMAIL_WINDOW_MS >= 10_000, "reserva del webhook");
+    await withEnv({ EMAIL_REQUEST_WINDOW_MS: "999999" }, async () => {
+      assert.equal(lib.emails.requestEmailDeadline(0, lib.emails.CRON_EMAIL_WINDOW_MS), lib.emails.CRON_EMAIL_WINDOW_MS);
+    });
+  });
+
+  await test("cron completo: backlog + proveedor lento + aviso diario nuevo → responde dentro del deadline, conserva pendientes y luego se recuperan", async () => {
+    await isolateOutbox();
+    const day = new Date().toISOString().slice(0, 10);
+    await db.emailOutbox.deleteMany({ where: { dedupeKey: `admin:outbox-health:${day}` } });
+    await failedEmail("DLN1"); // dispara el aviso diario
+    const ids = await backlog("cron", 6);
+    await withEnv(SCALE, () =>
+      withResend({ delayMs: 1300 }, async () => {
+        const { value: res, ms } = await timed(cronCall);
+        assert.equal(res.status, 200);
+        assert.ok(ms < 3000 + SLACK_MS, `cron tardó ${ms} ms`);
+        assert.ok(resendCalls >= 1 && resendCalls <= 3, `envíos iniciados: ${resendCalls}`);
+      })
+    );
+    const rows = await db.emailOutbox.findMany({ where: { id: { in: ids } } });
+    assert.equal(rows.filter((r) => r.status === "SENDING").length, 0, "nada queda reclamado");
+    const untouched = rows.filter((r) => r.status === "PENDING" && r.attempts === 0);
+    assert.ok(untouched.length >= 3, "los no iniciados siguen PENDING sin gastar intentos");
+    const alert = await db.emailOutbox.findUniqueOrThrow({ where: { dedupeKey: `admin:outbox-health:${day}` } });
+    assert.ok(alert.status === "PENDING" || alert.status === "SENT", "el aviso diario quedó persistido");
+
+    // Recuperación: siguiente ejecución con el proveedor sano → sale todo lo pendiente, aviso incluido.
+    await withEnv(SCALE, () =>
+      withResend({ delayMs: 20 }, async () => {
+        for (let i = 0; i < 3; i++) assert.equal((await cronCall()).status, 200);
+      })
+    );
+    const pendingDue = await db.emailOutbox.count({
+      where: { id: { in: [...ids, alert.id] }, status: { not: "SENT" }, nextAttemptAt: { lte: new Date() } },
+    });
+    assert.equal(pendingDue, 0, "todo lo vencido se envió");
+    assert.equal((await db.emailOutbox.findUniqueOrThrow({ where: { id: alert.id } })).status, "SENT");
+  });
+
+  await test("cron completo con proveedor colgado: el envío se corta en el deadline (no en su timeout propio)", async () => {
+    await isolateOutbox();
+    await backlog("hang", 3);
+    await withEnv({ ...SCALE, EMAIL_SEND_TIMEOUT_MS: "60000" }, () =>
+      withResend({ delayMs: 8_000 }, async () => {
+        const { value: res, ms } = await timed(cronCall);
+        assert.equal(res.status, 200);
+        assert.ok(ms < 3000 + SLACK_MS, `cron tardó ${ms} ms`);
+        assert.equal(resendCalls, 1, "un solo envío iniciado, cortado al deadline");
+      })
+    );
+    assert.equal(await db.emailOutbox.count({ where: { status: "SENDING" } }), 0);
+  });
+
+  await test("cron completo con fallos del proveedor (500) → reintentos con backoff, responde dentro del deadline", async () => {
+    await isolateOutbox();
+    const ids = await backlog("err", 4);
+    await withEnv(SCALE, () =>
+      withResend({ status: 500, delayMs: 50 }, async () => {
+        const { value: res, ms } = await timed(cronCall);
+        assert.equal(res.status, 200);
+        assert.ok(ms < 3000 + SLACK_MS, `cron tardó ${ms} ms`);
+      })
+    );
+    const rows = await db.emailOutbox.findMany({ where: { id: { in: ids } } });
+    assert.ok(rows.every((r) => r.status === "PENDING" && r.attempts === 1 && r.nextAttemptAt > new Date()), JSON.stringify(rows.map((r) => [r.status, r.attempts])));
+    assert.ok(rows.every((r) => /Resend/.test(r.lastError ?? "")));
+  });
+
+  await test("webhook completo: aviso de huérfano + barrido comparten el deadline; pendientes conservados y recuperados", async () => {
+    await isolateOutbox();
+    const ids = await backlog("hook", 4);
+    const pi = `pi_test_deadline_${Date.now()}`;
+    const event = {
+      id: `evt_test_deadline_${Date.now()}`, object: "event", type: "payment_intent.succeeded", livemode: true,
+      created: Math.floor(Date.now() / 1000),
+      data: { object: { id: pi, object: "payment_intent", status: "succeeded", amount: 1000, metadata: { origin: "otro.example" } } },
+    } as unknown as AnyEvent;
+    await withEnv(SCALE, () =>
+      withResend({ delayMs: 1300 }, async () => {
+        const { value: r, ms } = await timed(() => postWebhook(event));
+        assert.equal(r.status, 200);
+        assert.ok(ms < 3000 + SLACK_MS, `webhook tardó ${ms} ms`);
+        assert.ok(resendCalls >= 1 && resendCalls <= 3, `envíos iniciados: ${resendCalls}`);
+      })
+    );
+    const alert = await db.emailOutbox.findUniqueOrThrow({ where: { dedupeKey: `admin:orphan-payment:${pi}` } });
+    const all = await db.emailOutbox.findMany({ where: { id: { in: [...ids, alert.id] } } });
+    assert.equal(all.filter((r) => r.status === "SENDING").length, 0);
+    assert.ok(all.filter((r) => r.status === "PENDING" && r.attempts === 0).length >= 2, "pendientes no iniciados intactos");
+
+    await withEnv(SCALE, () =>
+      withResend({ delayMs: 20 }, async () => {
+        for (let i = 0; i < 3; i++) assert.equal((await cronCall()).status, 200);
+      })
+    );
+    const left = await db.emailOutbox.count({ where: { id: { in: [...ids, alert.id] }, status: { not: "SENT" }, nextAttemptAt: { lte: new Date() } } });
+    assert.equal(left, 0);
+    assert.equal((await db.emailOutbox.findUniqueOrThrow({ where: { id: alert.id } })).status, "SENT");
+  });
+
+  // Los dos escenarios del veredicto (68,8 s y 37,7 s), a escala 1/10 y en tiempo real: mismas duraciones
+  // relativas, ventanas 4,5 s (cron) y 2 s (webhook), timeout de envío 1,5 s.
+  await test("escenario del auditor, cron (13/13/13/14,9 s + aviso diario) a escala 1/10 → termina dentro de su ventana", async () => {
+    await isolateOutbox();
+    const day = new Date().toISOString().slice(0, 10);
+    await db.emailOutbox.deleteMany({ where: { dedupeKey: `admin:outbox-health:${day}` } });
+    await backlog("aud-cron", 6);
+    await withEnv({ ...SCALE, EMAIL_REQUEST_WINDOW_MS: "4500" }, () =>
+      withResend({ delays: [1300, 1300, 1300, 1490, 1490] }, async () => {
+        const { value: res, ms } = await timed(cronCall);
+        assert.equal(res.status, 200);
+        assert.ok(ms < 4500 + SLACK_MS, `cron tardó ${ms} ms (antes: 6880 a esta escala)`);
+        console.log(`    cron: ${ms} ms con ventana 4500 (antes del arreglo: 6880), envíos iniciados ${resendCalls}`);
+      })
+    );
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: `admin:outbox-health:${day}` } }), 1, "aviso persistido");
+    assert.equal(await db.emailOutbox.count({ where: { status: "SENDING" } }), 0);
+  });
+
+  await test("escenario del auditor, webhook (huérfano 7,9/14,9 s + barrido 14,9 s) a escala 1/10 → termina dentro de su ventana", async () => {
+    await isolateOutbox();
+    await backlog("aud-hook", 3);
+    const pi = `pi_test_aud_${Date.now()}`;
+    const event = {
+      id: `evt_test_aud_${Date.now()}`, object: "event", type: "payment_intent.succeeded", livemode: true,
+      created: Math.floor(Date.now() / 1000),
+      data: { object: { id: pi, object: "payment_intent", status: "succeeded", amount: 1000, metadata: { origin: "otro.example" } } },
+    } as unknown as AnyEvent;
+    await withEnv({ ...SCALE, EMAIL_REQUEST_WINDOW_MS: "2000" }, () =>
+      withResend({ delays: [790, 1490, 1490] }, async () => {
+        const { value: r, ms } = await timed(() => postWebhook(event));
+        assert.equal(r.status, 200);
+        assert.ok(ms < 2000 + SLACK_MS, `webhook tardó ${ms} ms (antes: 3770 a esta escala)`);
+        console.log(`    webhook: ${ms} ms con ventana 2000 (antes del arreglo: 3770), envíos iniciados ${resendCalls}`);
+      })
+    );
+    assert.ok(await db.emailOutbox.findUnique({ where: { dedupeKey: `admin:orphan-payment:${pi}` } }), "aviso persistido");
+    assert.equal(await db.emailOutbox.count({ where: { status: "SENDING" } }), 0);
+  });
+
+  await test("latencia de la base tras el reclamo: si ya no cabe el envío, se libera sin gastar intento ni llamar al proveedor", async () => {
+    await isolateOutbox();
+    const [id] = await backlog("slowdb", 1);
+    const original = db.emailOutbox.findUniqueOrThrow;
+    Object.assign(db.emailOutbox, {
+      findUniqueOrThrow: async (...args: Parameters<typeof original>) => {
+        await new Promise((r) => setTimeout(r, 500));
+        return original.apply(db.emailOutbox, args);
+      },
+    });
+    const { sent, sender } = fakeSender();
+    try {
+      await withEnv({ EMAIL_MIN_SEND_WINDOW_MS: "300" }, async () => {
+        assert.equal(await lib.emails.deliverEmail(id, sender, Date.now() + 600), "deferred");
+      });
+    } finally {
+      Object.assign(db.emailOutbox, { findUniqueOrThrow: original });
+    }
+    assert.equal(sent.length, 0);
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(row.status, "PENDING");
+    assert.equal(row.attempts, 0);
+    assert.equal(row.claimToken, null);
+    assert.equal(await lib.emails.deliverEmail(id, sender), "sent", "sin deadline se envía normalmente");
+  });
+
+  await test("deadline anidado: un lote con presupuesto mayor no pasa el deadline de la petición", async () => {
+    await isolateOutbox();
+    await backlog("nested", 5);
+    const { sender } = fakeSender({ delayMs: 400 });
+    await withEnv({ EMAIL_MIN_SEND_WINDOW_MS: "100" }, async () => {
+      const { value: counts, ms } = await timed(() =>
+        lib.emails.withEmailDeadline(Date.now() + 1000, () => lib.emails.deliverPending({ sender, budgetMs: 60_000, limit: 10 }))
+      );
+      assert.ok(ms < 1000 + 300, `tardó ${ms} ms`);
+      assert.ok(counts.sent >= 1 && counts.sent <= 3, JSON.stringify(counts));
+    });
   });
 
   console.log(`\n${passed} pruebas OK${skipped ? ` (${skipped} omitidas por TEST_ONLY)` : ""}${process.exitCode ? " — HAY FALLAS" : ""}`);

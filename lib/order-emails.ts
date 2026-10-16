@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { Resend } from "resend";
 import { db } from "@/lib/db";
@@ -28,7 +29,8 @@ export type OutgoingEmail = {
   idempotencyKey: string;
 };
 export type EmailSender = (email: OutgoingEmail) => Promise<{ id: string }>;
-export type DeliveryResult = "sent" | "retry" | "failed" | "not_configured" | "skipped";
+// "deferred": no quedaba tiempo para un envío completo antes del deadline; la fila vuelve a PENDING sin gastar intento.
+export type DeliveryResult = "sent" | "retry" | "failed" | "not_configured" | "skipped" | "deferred";
 
 export class EmailNotConfiguredError extends Error {}
 
@@ -126,7 +128,13 @@ export async function enqueueAdminAlert(
 
 // ── Entregar ────────────────────────────────────────────────────────────────────────────────────────
 
-export async function deliverEmail(id: string, sender: EmailSender = resendSender): Promise<DeliveryResult> {
+export async function deliverEmail(
+  id: string,
+  sender: EmailSender = resendSender,
+  deadlineAt = Infinity
+): Promise<DeliveryResult> {
+  const deadline = effectiveDeadline(deadlineAt);
+  if (deadline - Date.now() < minSendWindowMs()) return "deferred";
   const now = new Date();
   // Reclamo atómico con token propio: solo una ejecución pasa la fila a SENDING (o la retoma si el lock venció).
   const claimToken = randomUUID();
@@ -146,6 +154,17 @@ export async function deliverEmail(id: string, sender: EmailSender = resendSende
   const owned = { id, status: "SENDING" as const, claimToken };
 
   const email = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+  // HAG-122: el envío termina (o se corta) antes del deadline. Si la base tardó y ya no cabe un envío útil,
+  // se libera el reclamo sin gastar intento y sin llamar al proveedor.
+  if (deadline - Date.now() < minSendWindowMs()) {
+    const released = await db.emailOutbox.updateMany({
+      where: owned,
+      data: { status: "PENDING", attempts: { decrement: 1 }, lockedUntil: null, claimToken: null },
+    });
+    if (released.count !== 1) return lostClaim(email.dedupeKey, "deferred");
+    return "deferred";
+  }
+  const sendWindow = Math.min(sendTimeoutMs(), deadline - Date.now());
   try {
     const { id: providerMessageId } = await withTimeout(
       sender({
@@ -157,7 +176,7 @@ export async function deliverEmail(id: string, sender: EmailSender = resendSende
         text: email.text,
         idempotencyKey: email.dedupeKey,
       }),
-      sendTimeoutMs()
+      sendWindow
     );
     const done = await db.emailOutbox.updateMany({
       where: owned,
@@ -211,15 +230,50 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// ── Deadline de la petición (HAG-122) ───────────────────────────────────────────────────────────────
+//
+// Una petición (webhook, cron) puede entregar emails en varios lotes: el aviso de un pago huérfano, la
+// confirmación, el barrido final. Cada lote tiene su presupuesto, pero la suma no puede pasar el límite de la
+// función. `withEmailDeadline` fija un deadline ABSOLUTO compartido por todos los lotes y envíos dentro de `fn`:
+// ningún lote empieza un envío si no cabe un envío útil, y el timeout de cada envío se recorta para terminar
+// antes del deadline. El tiempo que falta hasta `maxDuration` queda de reserva para la base y la respuesta.
+const requestDeadline = new AsyncLocalStorage<number>();
+
+// No se empieza un envío con menos ventana que esto antes del deadline (Resend suele responder en < 1 s).
+const minSendWindowMs = () => Number(process.env.EMAIL_MIN_SEND_WINDOW_MS ?? 3_000);
+
+export function withEmailDeadline<T>(deadlineAt: number, fn: () => Promise<T>): Promise<T> {
+  return requestDeadline.run(effectiveDeadline(deadlineAt), fn);
+}
+
+// Ventanas de envío por ruta (HAG-122). Deben quedar holgadamente por debajo de su `maxDuration`:
+// webhook 20 s de 30 s, cron 45 s de 60 s (lo verifica la suite).
+export const WEBHOOK_EMAIL_WINDOW_MS = 20_000;
+export const CRON_EMAIL_WINDOW_MS = 45_000;
+
+// Deadline de los emails de una petición: `windowMs` desde que empezó. EMAIL_REQUEST_WINDOW_MS solo puede
+// ACHICAR la ventana (lo usan las pruebas para no esperar 45 s); nunca la extiende más allá del límite.
+export function requestEmailDeadline(startedAt: number, windowMs: number): number {
+  const override = Number(process.env.EMAIL_REQUEST_WINDOW_MS);
+  return startedAt + (override > 0 ? Math.min(override, windowMs) : windowMs);
+}
+
+// El menor entre el deadline propio y el de la petición en curso (si hay uno).
+function effectiveDeadline(deadlineAt = Infinity): number {
+  return Math.min(deadlineAt, requestDeadline.getStore() ?? Infinity);
+}
+
 // Envía los emails vencidos (opcionalmente solo los de una orden). No lanza: un fallo de entrega nunca rompe
-// el flujo que la invoca. Sí consume tiempo: `budgetMs` corta el lote (no empieza envíos nuevos pasado el
-// presupuesto), para acotar la espera de quien llama (p. ej. la respuesta del webhook a Stripe).
+// el flujo que la invoca. `budgetMs` es el tiempo en el que el lote debe TERMINAR (no solo dejar de empezar
+// envíos): cada envío se recorta al tiempo restante. Además respeta el deadline de la petición, si lo hay.
+// Los emails que no alcanzan a enviarse quedan PENDING para el próximo barrido.
 export async function deliverPending(
   opts: { orderId?: string; limit?: number; sender?: EmailSender; budgetMs?: number } = {}
 ): Promise<Record<DeliveryResult, number>> {
-  const counts: Record<DeliveryResult, number> = { sent: 0, retry: 0, failed: 0, not_configured: 0, skipped: 0 };
-  const deadline = opts.budgetMs === undefined ? Infinity : Date.now() + opts.budgetMs;
+  const counts: Record<DeliveryResult, number> = { sent: 0, retry: 0, failed: 0, not_configured: 0, skipped: 0, deferred: 0 };
+  const deadline = effectiveDeadline(opts.budgetMs === undefined ? Infinity : Date.now() + opts.budgetMs);
   try {
+    if (deadline - Date.now() < minSendWindowMs()) return counts;
     const now = new Date();
     const due = await db.emailOutbox.findMany({
       where: {
@@ -234,8 +288,8 @@ export async function deliverPending(
       take: opts.limit ?? 20,
     });
     for (const { id } of due) {
-      if (Date.now() >= deadline) break;
-      counts[await deliverEmail(id, opts.sender)]++;
+      if (deadline - Date.now() < minSendWindowMs()) break;
+      counts[await deliverEmail(id, opts.sender, deadline)]++;
     }
   } catch (error) {
     console.error("[order-emails] deliverPending falló:", error instanceof Error ? error.message : error);
@@ -260,4 +314,48 @@ export async function notifyAdmin(
   console.error(`[order-emails] AVISO ADMIN ${alert.dedupeKey}: ${alert.title} — ${alert.details}`);
   const created = await enqueueAdminAlert(db, alert);
   if (created) await deliverPending({ orderId: alert.orderId ?? undefined, limit: 3, sender, budgetMs: 8_000 });
+}
+
+// ── Operación (HAG-121 / HAG-122) ───────────────────────────────────────────────────────────────────
+
+// Un pendiente se considera atrasado si su próximo intento venció hace más de esto (el cron frecuente o el
+// barrido del webhook ya debieron tomarlo).
+export const OVERDUE_AFTER_MS = 30 * 60 * 1000;
+
+export type OutboxHealth = { failed: number; overdue: number; oldestOverdueAt: Date | null };
+
+export async function getOutboxHealth(now = new Date()): Promise<OutboxHealth> {
+  const overdueWhere = {
+    OR: [
+      { status: "PENDING" as const, nextAttemptAt: { lt: new Date(now.getTime() - OVERDUE_AFTER_MS) } },
+      { status: "SENDING" as const, lockedUntil: { lt: now } },
+    ],
+  };
+  const [failed, overdue, oldest] = await Promise.all([
+    db.emailOutbox.count({ where: { status: "FAILED" } }),
+    db.emailOutbox.count({ where: overdueWhere }),
+    db.emailOutbox.findFirst({ where: overdueWhere, orderBy: { nextAttemptAt: "asc" }, select: { nextAttemptAt: true } }),
+  ]);
+  return { failed, overdue, oldestOverdueAt: oldest?.nextAttemptAt ?? null };
+}
+
+// Reencola un email agotado (FAILED → PENDING, intentos a cero) y registra quién y cuándo. Condicionado al
+// estado en el mismo UPDATE: si ya no está FAILED (otro admin lo reencoló, o se envió), no hace nada.
+export async function requeueFailedEmail(id: string, adminEmail: string): Promise<boolean> {
+  const now = new Date();
+  const updated = await db.emailOutbox.updateMany({
+    where: { id, status: "FAILED" },
+    data: {
+      status: "PENDING",
+      attempts: 0,
+      nextAttemptAt: now,
+      lockedUntil: null,
+      claimToken: null,
+      requeuedAt: now,
+      requeuedBy: adminEmail,
+      requeueCount: { increment: 1 },
+    },
+  });
+  if (updated.count === 1) console.info(`[order-emails] email ${id} reencolado por ${adminEmail}`);
+  return updated.count === 1;
 }

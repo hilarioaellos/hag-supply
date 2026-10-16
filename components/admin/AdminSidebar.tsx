@@ -13,6 +13,7 @@ export function AdminSidebar() {
     { href: "/admin/categories", label: "Categories", icon: "🏷️" },
     { href: "/admin/orders", label: "Orders", icon: "📋" },
     { href: "/admin/users", label: "Users", icon: "👥" },
+    { href: "/admin/emails", label: "Emails", icon: "✉️" },
   ];
 
   const isActive = (href: string) => {

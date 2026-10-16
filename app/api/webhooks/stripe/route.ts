@@ -2,11 +2,16 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { handleStripeEvent } from "@/lib/stripe-webhook";
-import { deliverPending } from "@/lib/order-emails";
+import { deliverPending, requestEmailDeadline, WEBHOOK_EMAIL_WINDOW_MS, withEmailDeadline } from "@/lib/order-emails";
+
+// Tope de ejecución (HAG-122). Todos los envíos de la petición (aviso al admin, confirmación, barrido) comparten
+// un deadline a los 20 s de llegar la petición; los 10 s restantes son reserva para la base y la respuesta.
+export const maxDuration = 30;
 
 // POST /api/webhooks/stripe — sin sesión; la autenticidad la da la firma de Stripe (plan MVP, sección D).
 // 200: procesado o ignorado de forma idempotente. 400: firma inválida. 5xx: fallo transitorio, Stripe reintenta.
 export async function POST(req: Request) {
+  const emailDeadline = requestEmailDeadline(Date.now(), WEBHOOK_EMAIL_WINDOW_MS);
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
     // Configuración incompleta: 500 para que Stripe siga reintentando hasta que se cargue el secreto.
@@ -27,11 +32,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    const outcome = await handleStripeEvent(event);
-    console.info(`[stripe-webhook] ${event.type} ${event.id} → ${outcome.action}${outcome.orderId ? ` (orden ${outcome.orderId})` : ""}`);
-    // Aprovecha la llamada para reintentar emails vencidos (HAG-103). Sus errores no cambian la respuesta, pero
-    // sí la demoran: se acota con un presupuesto de tiempo (y cada envío tiene su propio timeout).
-    await deliverPending({ limit: 3, budgetMs: 5_000 });
+    await withEmailDeadline(emailDeadline, async () => {
+      const outcome = await handleStripeEvent(event);
+      console.info(`[stripe-webhook] ${event.type} ${event.id} → ${outcome.action}${outcome.orderId ? ` (orden ${outcome.orderId})` : ""}`);
+      // Aprovecha la llamada para reintentar emails vencidos (HAG-103). Sus errores no cambian la respuesta, pero
+      // sí la demoran: presupuesto propio de 5 s, siempre dentro del deadline compartido de la petición.
+      await deliverPending({ limit: 3, budgetMs: 5_000 });
+    });
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error(`[stripe-webhook] ${event.type} ${event.id} falló:`, error instanceof Error ? error.message : error);

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
 import Link from "next/link";
+import { getOutboxHealth } from "@/lib/order-emails";
 
 async function getDashboardStats() {
   const [activeProducts, categories, ordersByStatus, recentOrders, oversellOrders] =
@@ -63,8 +64,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default async function AdminDashboard() {
-  const { activeProducts, categories, orders, recentOrders, oversellOrders } =
-    await getDashboardStats();
+  const [{ activeProducts, categories, orders, recentOrders, oversellOrders }, emailHealth] = await Promise.all([
+    getDashboardStats(),
+    getOutboxHealth(),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -98,6 +101,24 @@ export default async function AdminDashboard() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Email outbox alert (HAG-121) */}
+      {(emailHealth.failed > 0 || emailHealth.overdue > 0) && (
+        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded flex items-start gap-3">
+          <div className="text-[20px]">✉️</div>
+          <div className="flex-1">
+            <h3 className="font-bold text-amber-900">
+              {emailHealth.failed > 0 && `${emailHealth.failed} failed email${emailHealth.failed !== 1 ? "s" : ""}`}
+              {emailHealth.failed > 0 && emailHealth.overdue > 0 && " · "}
+              {emailHealth.overdue > 0 && `${emailHealth.overdue} overdue`}
+            </h3>
+            <p className="text-[13px] text-amber-800 mt-1">Customers or you may be missing order emails.</p>
+          </div>
+          <Link href="/admin/emails" className="text-[12px] px-3 py-1 bg-amber-200 hover:bg-amber-300 text-amber-900 rounded transition-colors">
+            Review emails
+          </Link>
         </div>
       )}
 
