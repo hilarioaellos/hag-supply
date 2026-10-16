@@ -31,7 +31,13 @@ type Lib = {
   validateShipping: typeof import("@/lib/checkout").validateShipping;
   handleOversell: typeof import("@/lib/oversell").handleOversell;
   reconcileOrderPayment: typeof import("@/lib/checkout").reconcileOrderPayment;
+  handleStripeEvent: typeof import("@/lib/stripe-webhook").handleStripeEvent;
+  webhookPOST: typeof import("@/app/api/webhooks/stripe/route").POST;
 };
+
+// Secreto de firma SOLO para estas pruebas: los eventos se firman localmente con generateTestHeaderString.
+const TEST_WEBHOOK_SECRET = "whsec_test_local_only";
+process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
 
 const SHIPPING = { name: "Test Buyer", line1: "100 Main St", line2: null, city: "Miami", state: "FL", zip: "33101" };
 let passed = 0;
@@ -56,6 +62,8 @@ async function main() {
     validateShipping: (await import("@/lib/checkout")).validateShipping,
     handleOversell: (await import("@/lib/oversell")).handleOversell,
     reconcileOrderPayment: (await import("@/lib/checkout")).reconcileOrderPayment,
+    handleStripeEvent: (await import("@/lib/stripe-webhook")).handleStripeEvent,
+    webhookPOST: (await import("@/app/api/webhooks/stripe/route")).POST,
   };
   const { db, stripe } = lib;
 
@@ -442,12 +450,12 @@ async function main() {
     assert.equal(await lib.handleOversell(order.id, client), "OVERSELL_REFUND_FAILED");
   });
 
-  await test("error transitorio de Stripe al crear el refund → queda OVERSELL_REFUND_PENDING (no se marca fallido)", async () => {
+  await test("error transitorio de Stripe al crear el refund → REFUND_ERROR y queda OVERSELL_REFUND_PENDING (no se marca fallido)", async () => {
     const order = await oversellOrder("RF5");
     const client = wrap({
       refunds: { list: async () => ({ data: [] }), create: async () => { throw new Error("ECONNRESET simulado"); } },
     });
-    assert.equal(await lib.handleOversell(order.id, client), "REFUND_PENDING");
+    assert.equal(await lib.handleOversell(order.id, client), "REFUND_ERROR");
     const o = await orderOf(order.id);
     assert.equal(o.status, "OVERSELL_REFUND_PENDING");
     assert.equal(o.stripeRefundId, null);
@@ -645,6 +653,251 @@ async function main() {
     const down = wrap({ paymentIntents: { retrieve: async () => { throw new Error("timeout simulado"); } } });
     const r = await lib.reconcileOrderPayment(order.id, down);
     assert.deepEqual(r, { status: "PENDING_PAYMENT", paymentIntentStatus: null });
+  });
+
+  console.log("\nHAG-95 — webhook de Stripe");
+
+  type AnyEvent = Parameters<Lib["handleStripeEvent"]>[0];
+  let evtSeq = 0;
+  const evt = (type: string, object: unknown) =>
+    ({ id: `evt_test_${++evtSeq}`, object: "event", type, data: { object }, created: Math.floor(Date.now() / 1000), livemode: false }) as unknown as AnyEvent;
+  // Llama a la ruta real con un cuerpo firmado (o con la firma indicada).
+  const postWebhook = async (event: AnyEvent, signature?: string | null) => {
+    const payload = JSON.stringify(event);
+    const header = signature === undefined ? stripe.webhooks.generateTestHeaderString({ payload, secret: TEST_WEBHOOK_SECRET }) : signature;
+    const req = new Request("http://localhost/api/webhooks/stripe", {
+      method: "POST",
+      headers: header === null ? {} : { "stripe-signature": header },
+      body: payload,
+    });
+    const res = await lib.webhookPOST(req);
+    return { status: res.status, body: await res.json() };
+  };
+
+  await test("firma: sin header → 400; firma inválida → 400; sin STRIPE_WEBHOOK_SECRET → 500; firma válida → 200", async () => {
+    const e = evt("customer.created", { id: "cus_x" });
+    assert.equal((await postWebhook(e, null)).status, 400);
+    assert.equal((await postWebhook(e, "t=1,v1=deadbeef")).status, 400);
+    const otherSecret = stripe.webhooks.generateTestHeaderString({ payload: JSON.stringify(e), secret: "whsec_otro" });
+    assert.equal((await postWebhook(e, otherSecret)).status, 400, "firmado con otro secreto");
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    assert.equal((await postWebhook(e)).status, 500);
+    process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+    assert.deepEqual(await postWebhook(e), { status: 200, body: { received: true } });
+  });
+
+  await test("payment_intent.succeeded (pago real) → PAYMENT_CONFIRMED; evento duplicado → 200 idempotente, un solo decremento", async () => {
+    const { user, product, order } = await pendingWithPayment("W1");
+    const pi = await pay(order.stripePaymentIntentId!);
+    const e = evt("payment_intent.succeeded", pi);
+    assert.equal((await postWebhook(e)).status, 200);
+    assert.equal((await orderOf(order.id)).status, "PAYMENT_CONFIRMED");
+    assert.equal(await stockOf(product.id), 4);
+    assert.equal(await db.cartItem.count({ where: { userId: user.id } }), 0);
+    assert.equal((await postWebhook(e)).status, 200);
+    assert.deepEqual(await lib.handleStripeEvent(e), { action: "skipped:PAYMENT_CONFIRMED", orderId: order.id });
+    assert.equal(await stockOf(product.id), 4);
+  });
+
+  await test("payment_intent.succeeded sin stock → refund real con metadata → CANCELLED_REFUNDED; reenvío no duplica", async () => {
+    const { product, order } = await pendingWithPayment("W2", 1);
+    const pi = await pay(order.stripePaymentIntentId!);
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    const e = evt("payment_intent.succeeded", pi);
+    assert.equal((await postWebhook(e)).status, 200);
+    const after = await orderOf(order.id);
+    assert.equal(after.status, "CANCELLED_REFUNDED");
+    const refunds = await refundsOf(order.stripePaymentIntentId!);
+    assert.equal(refunds.length, 1);
+    assert.equal(refunds[0].metadata?.orderId, order.id);
+    assert.equal(refunds[0].metadata?.orderNumber, order.orderNumber);
+    assert.equal((await postWebhook(e)).status, 200);
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+  });
+
+  await test("error transitorio al crear el refund → handleStripeEvent lanza (la ruta responde 5xx); el reintento lo completa con 1 refund", async () => {
+    const { product, order } = await pendingWithPayment("W3", 1);
+    const pi = await pay(order.stripePaymentIntentId!);
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    const e = evt("payment_intent.succeeded", pi);
+    const flaky = wrap({ refunds: { create: async () => { throw new Error("ECONNRESET simulado"); } } });
+    await assert.rejects(lib.handleStripeEvent(e, flaky));
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_PENDING");
+    // Stripe reenvía el evento: esta vez con el cliente real, por la ruta.
+    assert.equal((await postWebhook(e)).status, 200);
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+  });
+
+  await test("refund.updated: refund `pending` real (7726) sigue pendiente; al llegar `succeeded` → CANCELLED_REFUNDED", async () => {
+    const { product, order } = await pendingWithPayment("W4", 1);
+    const pi = await stripe.paymentIntents.confirm(order.stripePaymentIntentId!, { payment_method: "pm_card_pendingRefund", return_url: "https://example.com/r" });
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    assert.equal((await postWebhook(evt("payment_intent.succeeded", pi))).status, 200);
+    const pending = await orderOf(order.id);
+    assert.equal(pending.status, "OVERSELL_REFUND_PENDING");
+    const refund = await stripe.refunds.retrieve(pending.stripeRefundId!);
+    assert.equal(refund.status, "pending");
+    assert.equal((await postWebhook(evt("refund.updated", refund))).status, 200);
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_PENDING");
+    // Stripe concluye el refund: evento refund.updated con status succeeded (retrieve simulado, igual que el evento).
+    const later = wrap({ refunds: { retrieve: async (id: string) => ({ ...(await stripe.refunds.retrieve(id)), status: "succeeded" }) } });
+    const outcome = await lib.handleStripeEvent(evt("refund.updated", { ...refund, status: "succeeded" }), later);
+    assert.deepEqual(outcome, { action: "refund:CANCELLED_REFUNDED", orderId: order.id });
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+  });
+
+  // Avisos al admin: notifyAdminRefundFailed escribe "[order-emails] REFUND FALLIDO en la orden <id>" (HAG-103
+  // los convertirá en email). Se cuentan para comprobar que salga exactamente uno por transición efectiva.
+  const adminAlerts: string[] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => {
+    const line = args.map(String).join(" ");
+    if (line.includes("[order-emails] REFUND FALLIDO")) adminAlerts.push(line);
+    originalConsoleError(...args);
+  };
+  const alertsFor = (orderId: string) => adminAlerts.filter((l) => l.includes(orderId)).length;
+  // Stripe "dice" que el refund falló (lo que devuelve refunds.retrieve en ese momento).
+  const refundFailedClient = (orderId: string) =>
+    wrap({ refunds: { retrieve: async (id: string) => ({ ...refundObj(id, "failed", orderId), failure_reason: "expired_or_canceled_card" }) } });
+
+  await test("refund.failed después de CANCELLED_REFUNDED → OVERSELL_REFUND_FAILED, 1 aviso; repetido → sin cambios ni otro aviso", async () => {
+    const { product, order } = await pendingWithPayment("W5", 1);
+    const pi = await pay(order.stripePaymentIntentId!);
+    await db.product.update({ where: { id: product.id }, data: { stock: 0 } });
+    await postWebhook(evt("payment_intent.succeeded", pi));
+    const refunded = await orderOf(order.id);
+    assert.equal(refunded.status, "CANCELLED_REFUNDED");
+    const refund = await stripe.refunds.retrieve(refunded.stripeRefundId!);
+    const failedEvt = evt("refund.failed", { ...refund, status: "failed" });
+    const failing = refundFailedClient(order.id);
+    assert.deepEqual(await lib.handleStripeEvent(failedEvt, failing), { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED");
+    assert.deepEqual(await lib.handleStripeEvent(failedEvt, failing), { action: "refund:SKIPPED", orderId: order.id });
+    assert.equal(alertsFor(order.id), 1);
+  });
+
+  console.log("\nHAG-95 NO-GO v1 · Mayor — refund `succeeded` y `failed` del MISMO refund en paralelo (PostgreSQL real)");
+
+  // Orden en OVERSELL_REFUND_PENDING con refund guardado; Stripe lo controla el cliente de cada actor.
+  const refundRaceOrder = async (tag: string) => {
+    const order = await oversellOrder(tag);
+    return db.order.update({ where: { id: order.id }, data: { status: "OVERSELL_REFUND_PENDING", stripeRefundId: `re_race_${tag}` } });
+  };
+  // Cliente cuyo refunds.retrieve se pausa (ya leída la orden por el handler) hasta abrir la compuerta.
+  let refundCreates = 0;
+  const pausedRefund = (status: string, orderId: string) => {
+    const g = gate();
+    const client = wrap({
+      refunds: {
+        retrieve: async (id: string) => {
+          g.entered();
+          await g.opened;
+          return { ...refundObj(id, status, orderId), failure_reason: status === "failed" ? "expired_or_canceled_card" : null };
+        },
+        list: async () => ({ data: [] }),
+        create: async () => { refundCreates++; throw new Error("no debe crearse otro refund"); },
+      },
+    });
+    return { g, client };
+  };
+  const refundEvt = (type: string, refundId: string, orderId: string, status: string) =>
+    evt(type, { id: refundId, object: "refund", status, metadata: { orderId } });
+
+  await test("secuencia del auditor: A (refund.updated → succeeded) y B (refund.failed) leen pendiente; aplica A y luego B → OVERSELL_REFUND_FAILED, 1 aviso, 0 refunds nuevos", async () => {
+    const order = await refundRaceOrder("RC1");
+    refundCreates = 0;
+    const a = pausedRefund("succeeded", order.id);
+    const b = pausedRefund("failed", order.id);
+    const aDone = lib.handleStripeEvent(refundEvt("refund.updated", order.stripeRefundId!, order.id, "succeeded"), a.client);
+    await a.g.reached;
+    const bDone = lib.handleStripeEvent(refundEvt("refund.failed", order.stripeRefundId!, order.id, "failed"), b.client);
+    await b.g.reached;
+    a.g.open();
+    assert.deepEqual(await aDone, { action: "refund:CANCELLED_REFUNDED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+    b.g.open();
+    assert.deepEqual(await bDone, { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED");
+    assert.equal(alertsFor(order.id), 1);
+    assert.equal(refundCreates, 0);
+  });
+
+  await test("orden inverso: aplica B (failed) y después A (succeeded atrasado) → sigue OVERSELL_REFUND_FAILED, 1 aviso", async () => {
+    const order = await refundRaceOrder("RC2");
+    refundCreates = 0;
+    const a = pausedRefund("succeeded", order.id);
+    const b = pausedRefund("failed", order.id);
+    const aDone = lib.handleStripeEvent(refundEvt("refund.updated", order.stripeRefundId!, order.id, "succeeded"), a.client);
+    await a.g.reached;
+    const bDone = lib.handleStripeEvent(refundEvt("refund.failed", order.stripeRefundId!, order.id, "failed"), b.client);
+    await b.g.reached;
+    b.g.open();
+    assert.deepEqual(await bDone, { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
+    a.g.open();
+    assert.deepEqual(await aDone, { action: "refund:SKIPPED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED", "un succeeded atrasado no revierte el fallo");
+    assert.equal(alertsFor(order.id), 1);
+    assert.equal(refundCreates, 0);
+  });
+
+  await test("misma carrera por el camino handleOversell (payment_intent.succeeded reenviado con la orden pendiente) + refund.failed → OVERSELL_REFUND_FAILED, 1 aviso", async () => {
+    const order = await refundRaceOrder("RC3");
+    refundCreates = 0;
+    const a = pausedRefund("succeeded", order.id);
+    const b = pausedRefund("failed", order.id);
+    const piEvt = evt("payment_intent.succeeded", { id: order.stripePaymentIntentId, object: "payment_intent", status: "succeeded", metadata: { orderId: order.id } });
+    const aDone = lib.handleStripeEvent(piEvt, a.client); // → handleOversell → retrieve del refund guardado
+    await a.g.reached;
+    const bDone = lib.handleStripeEvent(refundEvt("refund.failed", order.stripeRefundId!, order.id, "failed"), b.client);
+    await b.g.reached;
+    a.g.open();
+    assert.deepEqual(await aDone, { action: "oversell:CANCELLED_REFUNDED", orderId: order.id });
+    b.g.open();
+    assert.deepEqual(await bDone, { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED");
+    assert.equal(alertsFor(order.id), 1);
+    assert.equal(refundCreates, 0);
+  });
+
+  await test("dos refund.failed del mismo refund en paralelo → OVERSELL_REFUND_FAILED con un solo aviso", async () => {
+    const order = await refundRaceOrder("RC4");
+    const b1 = pausedRefund("failed", order.id);
+    const b2 = pausedRefund("failed", order.id);
+    const e = refundEvt("refund.failed", order.stripeRefundId!, order.id, "failed");
+    const d1 = lib.handleStripeEvent(e, b1.client);
+    const d2 = lib.handleStripeEvent(e, b2.client);
+    await Promise.all([b1.g.reached, b2.g.reached]);
+    b1.g.open();
+    b2.g.open();
+    const actions = (await Promise.all([d1, d2])).map((r) => r.action).sort();
+    assert.deepEqual(actions, ["refund:OVERSELL_REFUND_FAILED", "refund:SKIPPED"]);
+    assert.equal(alertsFor(order.id), 1);
+  });
+
+  await test("refund de OTRA orden con metadata ajena → ignorado, la orden no cambia", async () => {
+    const order = await refundRaceOrder("RC5");
+    const other = await refundRaceOrder("RC6");
+    const e = evt("refund.failed", { id: order.stripeRefundId, object: "refund", status: "failed", metadata: { orderId: other.id } });
+    const r = await lib.handleStripeEvent(e, refundFailedClient(other.id));
+    // Se encuentra por stripeRefundId (orden RC5) aunque la metadata apunte a otra: aplica a la orden dueña del refund.
+    assert.equal(r.orderId, order.id);
+    assert.equal((await orderOf(other.id)).status, "OVERSELL_REFUND_PENDING");
+  });
+
+  await test("estado terminal (CANCELLED) + payment_intent.succeeded → no se toca; pago sin orden → 200 'orphan_payment'", async () => {
+    const { order } = await pendingWithPayment("W6");
+    await db.order.update({ where: { id: order.id }, data: { status: "CANCELLED" } });
+    const pi = await stripe.paymentIntents.retrieve(order.stripePaymentIntentId!);
+    assert.deepEqual(await lib.handleStripeEvent(evt("payment_intent.succeeded", { ...pi, status: "succeeded" })), { action: "skipped:CANCELLED", orderId: order.id });
+    const orphan = evt("payment_intent.succeeded", { id: "pi_orphan_test", object: "payment_intent", status: "succeeded", metadata: {} });
+    assert.deepEqual(await postWebhook(orphan), { status: 200, body: { received: true } });
+    assert.equal((await lib.handleStripeEvent(orphan)).action, "orphan_payment");
+  });
+
+  await test("refund ajeno (sin orden) y tipos de evento no manejados → ignorados con 200", async () => {
+    assert.deepEqual(await lib.handleStripeEvent(evt("refund.updated", { id: "re_ajeno", object: "refund", status: "succeeded", metadata: {} })), { action: "ignored:refund_without_order" });
+    assert.deepEqual(await postWebhook(evt("charge.succeeded", { id: "ch_x" })), { status: 200, body: { received: true } });
   });
 
   console.log(`\n${passed} pruebas OK${process.exitCode ? " — HAY FALLAS" : ""}`);
