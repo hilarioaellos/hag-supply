@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { loadStripe, type Stripe, type StripeElements } from "@stripe/stripe-js";
 import { Button } from "@/components/ui/Button";
 
@@ -93,7 +94,11 @@ export function StripePayment({ orderId, clientSecret, total }: Props) {
       <Button type="submit" size="lg" loading={paying} disabled={!ready || paying} className="w-full">
         Pay ${total}
       </Button>
-      <p className="text-[12px] text-hag-text-3 text-center">Payments are processed securely by Stripe.</p>
+      <p className="text-[12px] text-hag-text-3 text-center">
+        Payments are processed securely by Stripe. By placing your order you agree to our{" "}
+        <Link href="/terms" target="_blank" className="underline hover:text-hag-text-2">Terms of Service</Link> and{" "}
+        <Link href="/returns" target="_blank" className="underline hover:text-hag-text-2">Returns &amp; Refunds</Link> policy.
+      </p>
     </form>
   );
 }

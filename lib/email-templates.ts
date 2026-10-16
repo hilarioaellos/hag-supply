@@ -85,7 +85,7 @@ export function renderOrderConfirmation(d: ConfirmationEmailData): RenderedEmail
 <h2 style="margin:24px 0 6px;font-size:15px;">Shipping to</h2>
 <p style="margin:0;font-size:14px;line-height:1.5;color:#374151;">${addressLines.map(esc).join("<br>")}</p>
 <p style="margin:26px 0 0;"><a href="${esc(orderUrl)}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:bold;">View your order</a></p>
-<p style="margin:18px 0 0;font-size:13px;color:#6b7280;line-height:1.5;">We'll email you again when it ships.</p>`;
+<p style="margin:18px 0 0;font-size:13px;color:#6b7280;line-height:1.5;">You can follow the status of your order in your account.</p>`;
 
   const text = [
     `Thank you for your order, ${firstName}!`,
