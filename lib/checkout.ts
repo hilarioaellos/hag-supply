@@ -5,6 +5,7 @@ import { confirmOrder } from "@/lib/confirm-order";
 import { handleOversell, type OversellResult } from "@/lib/oversell";
 import { sendOrderConfirmation } from "@/lib/order-emails";
 import { generateOrderNumber } from "@/lib/order-number";
+import { appOrigin } from "@/lib/app-origin";
 
 // Flujo de checkout (plan MVP, sección C). Toda la lógica vive aquí; app/api/checkout/route.ts solo
 // autentica, valida la entrada y traduce el resultado a HTTP.
@@ -159,7 +160,7 @@ export async function startCheckout(
         currency: "usd",
         automatic_payment_methods: { enabled: true },
         receipt_email: user.email,
-        metadata: { orderId: order.id, orderNumber: order.orderNumber, userId },
+        metadata: { orderId: order.id, orderNumber: order.orderNumber, userId, origin: appOrigin() },
       },
       { idempotencyKey: `pi-${order.id}` }
     );

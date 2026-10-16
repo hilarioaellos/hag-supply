@@ -2,12 +2,12 @@ import type { Prisma } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { Resend } from "resend";
 import { db } from "@/lib/db";
-import { renderAdminAlert, renderOrderConfirmation } from "@/lib/email-templates";
+import { renderAdminAlert, renderNewOrderNotification, renderOrderConfirmation } from "@/lib/email-templates";
 
 // Emails transaccionales con bandeja de salida durable (HAG-103).
 //
 // 1. Encolar: el email se guarda en EmailOutbox DENTRO de la transacción que cambia el estado que lo origina
-//    (confirmOrder → confirmación; transición a OVERSELL_REFUND_FAILED → aviso al admin). Si el estado cambió,
+//    (confirmOrder → confirmación al comprador + aviso de venta nueva; OVERSELL_REFUND_FAILED → aviso al admin). Si el estado cambió,
 //    el email existe; si la transacción se revierte, tampoco queda el email.
 // 2. Entregar: después del commit se intenta enviar. Cada envío reclama la fila de forma atómica
 //    (PENDING → SENDING con lock y token propio), así dos procesos no envían el mismo email, y una ejecución
@@ -43,6 +43,8 @@ const dueBefore = (now: Date) => new Date(now.getTime() + DUE_TOLERANCE_MS);
 const fromAddress = () => process.env.EMAIL_FROM ?? "HAG Supply <orders@hagpartner.com>";
 const replyToAddress = () => process.env.EMAIL_REPLY_TO ?? "orders@hagpartner.com";
 const adminAddress = () => process.env.ADMIN_ALERT_EMAIL ?? "alertas@hagpartner.com";
+// Aviso de venta nueva (HAG-123): destinatario propio opcional; si no, el mismo de los avisos al admin.
+const orderNotifyAddress = () => process.env.ORDER_NOTIFY_EMAIL ?? adminAddress();
 
 let resendClient: Resend | null = null;
 
@@ -61,15 +63,16 @@ export const resendSender: EmailSender = async (email) => {
 
 // ── Encolar ─────────────────────────────────────────────────────────────────────────────────────────
 
-// Confirmación de compra. Se llama dentro de la transacción de confirmOrder.
-export async function enqueueOrderConfirmation(tx: Tx, orderId: string): Promise<void> {
+// Emails de una compra confirmada: confirmación al comprador + aviso de venta nueva al dueño (HAG-123).
+// Se llama dentro de la transacción de confirmOrder: existen ambos si la compra se confirma, ninguno si se revierte.
+export async function enqueueOrderEmails(tx: Tx, orderId: string): Promise<void> {
   const order = await tx.order.findUniqueOrThrow({
     where: { id: orderId },
     include: {
       items: { include: { product: { select: { media: { select: { url: true }, orderBy: { order: "asc" }, take: 1 } } } } },
     },
   });
-  const email = renderOrderConfirmation({
+  const data = {
     orderNumber: order.orderNumber,
     orderId: order.id,
     createdAt: order.createdAt,
@@ -92,9 +95,18 @@ export async function enqueueOrderConfirmation(tx: Tx, orderId: string): Promise
       state: order.shippingState,
       zip: order.shippingZip,
     },
-  });
+  };
   await tx.emailOutbox.createMany({
-    data: [{ dedupeKey: `order-confirmation:${orderId}`, kind: "ORDER_CONFIRMATION", orderId, to: order.buyerEmail, ...email }],
+    data: [
+      { dedupeKey: `order-confirmation:${orderId}`, kind: "ORDER_CONFIRMATION", orderId, to: order.buyerEmail, ...renderOrderConfirmation(data) },
+      {
+        dedupeKey: `admin:new-order:${orderId}`,
+        kind: "ADMIN_NEW_ORDER",
+        orderId,
+        to: orderNotifyAddress(),
+        ...renderNewOrderNotification({ ...data, buyerEmail: order.buyerEmail }),
+      },
+    ],
     skipDuplicates: true,
   });
 }

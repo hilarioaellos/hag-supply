@@ -173,6 +173,7 @@ model OrderItem {
 enum EmailKind {
   ORDER_CONFIRMATION
   ADMIN_ALERT
+  ADMIN_NEW_ORDER
 }
 
 enum EmailStatus {

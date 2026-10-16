@@ -18,6 +18,20 @@ if (!/@(localhost|127\.0\.0\.1)(:\d+)?\//.test(dbUrl) || process.env.DIRECT_URL 
   console.error("✗ DATABASE_URL y DIRECT_URL deben apuntar a la MISMA base en localhost. Abortado.");
   process.exit(1);
 }
+// HAG-124: la cuenta de Stripe de prueba es compartida con producción. Los pagos de la suite llevan
+// metadata.origin = host de NEXTAUTH_URL, y producción ignora los de otro origen. Sin un origen local válido y
+// distinto del de producción, los pagos de la suite generarían avisos falsos en producción: no se corre.
+const testOrigin = (() => {
+  try {
+    return new URL(process.env.NEXTAUTH_URL ?? "").host;
+  } catch {
+    return "";
+  }
+})();
+if (!testOrigin || testOrigin === "supply.hagpartner.com") {
+  console.error(`✗ NEXTAUTH_URL debe ser una URL local válida y distinta de producción (actual: "${process.env.NEXTAUTH_URL ?? ""}"). Abortado.`);
+  process.exit(1);
+}
 if (!process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_")) {
   console.error("✗ STRIPE_SECRET_KEY debe ser una clave de prueba (sk_test_). Abortado.");
   process.exit(1);
@@ -44,12 +58,21 @@ process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
 // Nunca enviar emails reales desde las pruebas: sin clave, el envío por Resend queda "no configurado".
 delete process.env.RESEND_API_KEY;
 delete process.env.ADMIN_ALERT_EMAIL; // las pruebas verifican el destinatario por defecto
+delete process.env.ORDER_NOTIFY_EMAIL;
 process.env.CRON_SECRET = "cron_test_local_only";
 
 const SHIPPING = { name: "Test Buyer", line1: "100 Main St", line2: null, city: "Miami", state: "FL", zip: "33101" };
 let passed = 0;
 
+// TEST_ONLY=<regex>: corre solo las pruebas cuyo nombre coincide (p. ej. para no confirmar pagos en Stripe).
+const only = process.env.TEST_ONLY ? new RegExp(process.env.TEST_ONLY) : null;
+let skipped = 0;
+
 async function test(name: string, fn: () => Promise<void>) {
+  if (only && !only.test(name)) {
+    skipped++;
+    return;
+  }
   try {
     await fn();
     passed++;
@@ -975,10 +998,12 @@ async function main() {
     await lib.emails.sendOrderConfirmation(order.id, sender);
     const email = (await confirmationOf(order.id))!;
     assert.equal(email.status, "SENT");
-    assert.equal(email.providerMessageId, "msg_1");
+    // Confirmación y aviso de venta se encolan juntos: el orden de envío entre ambos no está garantizado.
+    assert.match(email.providerMessageId ?? "", /^msg_[12]$/);
     assert.ok(email.sentAt);
     await lib.emails.sendOrderConfirmation(order.id, sender);
-    assert.equal(sent.length, 1);
+    // Cada orden tiene 2 emails (confirmación + aviso de venta, HAG-123): la confirmación salió una sola vez.
+    assert.equal(sent.filter((m) => m.idempotencyKey === `order-confirmation:${order.id}`).length, 1);
   });
 
   await test("sin RESEND_API_KEY → queda PENDING sin gastar intentos; al configurarse se envía", async () => {
@@ -1023,7 +1048,7 @@ async function main() {
     const id = (await confirmationOf(order.id))!.id;
     const { sent, sender } = fakeSender({ delayMs: 300 });
     const results = await Promise.all([lib.emails.deliverEmail(id, sender), lib.emails.deliverEmail(id, sender), lib.emails.deliverPending({ orderId: order.id, sender })]);
-    assert.equal(sent.length, 1, JSON.stringify(results));
+    assert.equal(sent.filter((m) => m.idempotencyKey === `order-confirmation:${order.id}`).length, 1, JSON.stringify(results));
     assert.equal((await confirmationOf(order.id))!.status, "SENT");
   });
 
@@ -1225,7 +1250,8 @@ async function main() {
     assert.ok(counts.sent >= 1 && counts.sent <= 2, JSON.stringify(counts));
     assert.equal(sent.length, counts.sent);
     assert.ok(Date.now() - started < 1000);
-    assert.equal(await db.emailOutbox.count({ where: { id: { in: ids }, status: "PENDING" } }), 4 - counts.sent);
+    // Cada compra encola 2 emails (confirmación + aviso de venta, HAG-123): 8 en total.
+    assert.equal(await db.emailOutbox.count({ where: { status: "PENDING" } }), 8 - counts.sent);
   });
 
   await test("visitar la confirmación de una orden ya pagada intenta enviar su email pendiente", async () => {
@@ -1238,6 +1264,65 @@ async function main() {
     const after = (await confirmationOf(order.id))!;
     assert.match(after.lastError ?? "", /RESEND_API_KEY no configurada/, "se intentó la entrega (sin clave en pruebas)");
     assert.equal(after.status, "PENDING");
+  });
+
+  console.log("\nHAG-123 — aviso al dueño por cada venta nueva");
+
+  const newOrderOf = (orderId: string) => db.emailOutbox.findUnique({ where: { dedupeKey: `admin:new-order:${orderId}` } });
+
+  await test("confirmOrder encola el aviso de venta nueva junto a la confirmación; con oversell (rollback) no queda ninguno", async () => {
+    const { order } = await confirmedOrder("N1", `Taza <b>roja</b> & "Co"`);
+    assert.equal(await lib.confirmOrder(order.id), "confirmed");
+    const n = await newOrderOf(order.id);
+    assert.ok(n);
+    assert.equal(n!.kind, "ADMIN_NEW_ORDER");
+    assert.equal(n!.to, "alertas@hagpartner.com", "sin ORDER_NOTIFY_EMAIL ni ADMIN_ALERT_EMAIL usa el destinatario por defecto");
+    assert.equal(n!.subject, "[HAG Supply] New order T-N1 — $25.00");
+    const buyer = (await db.user.findUniqueOrThrow({ where: { id: order.userId } })).email;
+    for (const piece of ["New order: $25.00", "T-N1", "Ana María Pérez", buyer, "2 × $12.50", "1 Ocean Dr", "Miami, FL 33139", `/admin/orders/${order.id}`]) {
+      assert.ok(n!.html.includes(piece), `HTML sin "${piece}"`);
+    }
+    assert.ok(!n!.html.includes("<b>roja</b>") && n!.html.includes("&lt;b&gt;roja&lt;/b&gt;"), "nombre escapado");
+    assert.ok(n!.text.includes(`Customer: Ana María Pérez <${buyer}>`));
+    const { product, order: o2 } = await confirmedOrder("N1B");
+    await db.product.update({ where: { id: product.id }, data: { stock: 1 } });
+    assert.equal(await lib.confirmOrder(o2.id), "oversell");
+    assert.equal(await newOrderOf(o2.id), null);
+  });
+
+  await test("confirmaciones concurrentes → UN solo aviso de venta; ORDER_NOTIFY_EMAIL y ADMIN_ALERT_EMAIL eligen el destinatario", async () => {
+    const { order } = await confirmedOrder("N2");
+    process.env.ADMIN_ALERT_EMAIL = "admin@test.local";
+    try {
+      await Promise.all([lib.confirmOrder(order.id), lib.confirmOrder(order.id), lib.confirmOrder(order.id)]);
+      assert.equal(await db.emailOutbox.count({ where: { orderId: order.id, kind: "ADMIN_NEW_ORDER" } }), 1);
+      assert.equal((await newOrderOf(order.id))!.to, "admin@test.local");
+      const { order: o3 } = await confirmedOrder("N3");
+      process.env.ORDER_NOTIFY_EMAIL = "ventas@test.local";
+      await lib.confirmOrder(o3.id);
+      assert.equal((await newOrderOf(o3.id))!.to, "ventas@test.local");
+    } finally {
+      delete process.env.ADMIN_ALERT_EMAIL;
+      delete process.env.ORDER_NOTIFY_EMAIL;
+    }
+  });
+
+  await test("el envío de la orden entrega confirmación y aviso de venta (dos envíos, cada uno a su destinatario)", async () => {
+    const { order } = await confirmedOrder("N4");
+    await lib.confirmOrder(order.id);
+    const { sent, sender } = fakeSender();
+    await lib.emails.sendOrderConfirmation(order.id, sender);
+    assert.equal(sent.length, 2);
+    const buyer = (await db.user.findUniqueOrThrow({ where: { id: order.userId } })).email;
+    assert.deepEqual(sent.map((m) => m.to).sort(), [buyer, "alertas@hagpartner.com"].sort());
+    assert.equal(await db.emailOutbox.count({ where: { orderId: order.id, status: "SENT" } }), 2);
+  });
+
+  await test("webhook payment_intent.succeeded con pago real → también encola el aviso de venta", async () => {
+    const { order } = await pendingWithPayment("N5");
+    const pi = await pay(order.stripePaymentIntentId!);
+    assert.equal((await postWebhook(evt("payment_intent.succeeded", pi))).status, 200);
+    assert.ok(await newOrderOf(order.id));
   });
 
   await test("cron: sin CRON_SECRET → 503; secreto incorrecto → 401; correcto → 200 y entrega lo vencido", async () => {
@@ -1253,7 +1338,33 @@ async function main() {
     assert.ok("not_configured" in body && "sent" in body);
   });
 
-  console.log(`\n${passed} pruebas OK${process.exitCode ? " — HAY FALLAS" : ""}`);
+  console.log("\nHAG-124 — pagos de otro origen (cuenta de Stripe de prueba compartida)");
+
+  await test("startCheckout guarda metadata.origin con el host de esta instalación (sin confirmar el pago)", async () => {
+    const user = await newUser();
+    const p = await mk("OR1", 10, 5);
+    await cart(user.id, [{ productId: p.id, quantity: 1 }]);
+    const r = await lib.startCheckout(user.id, SHIPPING);
+    if (r.kind !== "payment") throw new Error(JSON.stringify(r));
+    const pi = await stripe.paymentIntents.retrieve((await orderOf(r.orderId)).stripePaymentIntentId!);
+    assert.equal(pi.metadata.origin, new URL(process.env.NEXTAUTH_URL ?? "https://supply.hagpartner.com").host);
+  });
+
+  await test("pago sin orden de OTRO origen → ignorado (200) y SIN aviso al admin", async () => {
+    const e = evt("payment_intent.succeeded", { id: "pi_foreign_origin", object: "payment_intent", status: "succeeded", metadata: { orderId: "x", origin: "otra-instalacion.example" } });
+    assert.deepEqual(await postWebhook(e), { status: 200, body: { received: true } });
+    assert.deepEqual(await lib.handleStripeEvent(e), { action: "ignored:foreign_origin" });
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_foreign_origin" } }), 0);
+  });
+
+  await test("pago sin orden del MISMO origen → sigue avisando al admin (un aviso)", async () => {
+    const own = new URL(process.env.NEXTAUTH_URL ?? "https://supply.hagpartner.com").host;
+    const e = evt("payment_intent.succeeded", { id: "pi_own_origin", object: "payment_intent", status: "succeeded", metadata: { orderId: "y", origin: own } });
+    assert.equal((await lib.handleStripeEvent(e)).action, "orphan_payment");
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_own_origin" } }), 1);
+  });
+
+  console.log(`\n${passed} pruebas OK${skipped ? ` (${skipped} omitidas por TEST_ONLY)` : ""}${process.exitCode ? " — HAY FALLAS" : ""}`);
   await db.$disconnect();
 }
 

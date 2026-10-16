@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { enqueueOrderConfirmation } from "@/lib/order-emails";
+import { enqueueOrderEmails } from "@/lib/order-emails";
 
 export type ConfirmResult = "confirmed" | "already_processed" | "oversell";
 
@@ -53,9 +53,9 @@ export async function confirmOrder(orderId: string): Promise<ConfirmResult> {
         where: { userId: order.userId },
       });
 
-      // PASO 5 (HAG-103): encolar el email de confirmación en la misma transacción. Si la confirmación se
-      // revierte (oversell), tampoco queda el email; si se confirma, el email queda registrado para enviarse.
-      await enqueueOrderConfirmation(tx, orderId);
+      // PASO 5 (HAG-103/123): encolar en la misma transacción la confirmación al comprador y el aviso de venta
+      // nueva al dueño. Si la confirmación se revierte (oversell), no queda ninguno; si se confirma, quedan ambos.
+      await enqueueOrderEmails(tx, orderId);
     });
 
     return "confirmed";

@@ -123,3 +123,50 @@ export function renderAdminAlert(title: string, details: string, orderId?: strin
     text: `${title}\n\n${details}\n\nAdmin: ${adminUrl}`,
   };
 }
+
+// Aviso al dueño por cada venta nueva (HAG-123). Reutiliza los datos de la confirmación + email del comprador.
+export function renderNewOrderNotification(d: ConfirmationEmailData & { buyerEmail: string }): RenderedEmail {
+  const date = d.createdAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: STORE_TIME_ZONE });
+  const adminUrl = `${storeUrl()}/admin/orders/${d.orderId}`;
+  const units = d.items.reduce((n, i) => n + i.quantity, 0);
+  const addressLines = [d.shipping.name, d.shipping.line1, d.shipping.line2, `${d.shipping.city}, ${d.shipping.state} ${d.shipping.zip}`].filter(
+    (l): l is string => Boolean(l)
+  );
+  const rows = d.items
+    .map(
+      (i) => `<tr>
+<td style="padding:8px 0;border-bottom:1px solid #eef0f3;font-size:14px;">${esc(i.name)}<br><span style="color:#6b7280;font-size:13px;">${i.quantity} × $${esc(i.unitPrice)}</span></td>
+<td style="padding:8px 0;border-bottom:1px solid #eef0f3;font-size:14px;text-align:right;white-space:nowrap;">$${esc(i.total)}</td>
+</tr>`
+    )
+    .join("");
+  const body = `
+<h1 style="margin:0 0 6px;font-size:21px;">New order: $${esc(d.total)}</h1>
+<p style="margin:0 0 18px;font-size:14px;color:#4b5563;">${esc(d.orderNumber)} · ${esc(date)} · ${units} item${units === 1 ? "" : "s"}</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:16px;font-size:14px;">
+<tr><td style="color:#6b7280;">Customer</td><td style="text-align:right;">${esc(d.buyerName)}</td></tr>
+<tr><td style="color:#6b7280;padding-top:4px;">Email</td><td style="text-align:right;padding-top:4px;">${esc(d.buyerEmail)}</td></tr>
+</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:10px;font-size:14px;">
+<tr><td style="font-weight:bold;">Total</td><td style="text-align:right;font-weight:bold;">$${esc(d.total)}</td></tr>
+</table>
+<h2 style="margin:22px 0 6px;font-size:15px;">Ship to</h2>
+<p style="margin:0;font-size:14px;line-height:1.5;color:#374151;">${addressLines.map(esc).join("<br>")}</p>
+<p style="margin:24px 0 0;"><a href="${esc(adminUrl)}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;padding:11px 18px;border-radius:8px;font-size:14px;font-weight:bold;">Open order in admin</a></p>`;
+  const text = [
+    `New order: $${d.total}`,
+    `${d.orderNumber} · ${date} · ${units} item${units === 1 ? "" : "s"}`,
+    "",
+    `Customer: ${d.buyerName} <${d.buyerEmail}>`,
+    "",
+    ...d.items.map((i) => `- ${i.name} — ${i.quantity} × $${i.unitPrice} = $${i.total}`),
+    `Total: $${d.total}`,
+    "",
+    "Ship to:",
+    ...addressLines,
+    "",
+    `Admin: ${adminUrl}`,
+  ].join("\n");
+  return { subject: `[HAG Supply] New order ${d.orderNumber} — $${d.total}`, html: layout(`New order ${d.orderNumber}`, body), text };
+}

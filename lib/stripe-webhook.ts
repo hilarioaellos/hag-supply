@@ -5,6 +5,7 @@ import { stripe } from "@/lib/stripe";
 import { confirmOrder } from "@/lib/confirm-order";
 import { applyRefundOutcome, handleOversell } from "@/lib/oversell";
 import { notifyAdmin, sendOrderConfirmation } from "@/lib/order-emails";
+import { appOrigin } from "@/lib/app-origin";
 
 // Lógica del webhook de Stripe (plan MVP, sección D). app/api/webhooks/stripe/route.ts verifica la firma y
 // traduce el resultado: si esta función lanza, la ruta responde 5xx y Stripe reenvía el evento.
@@ -45,9 +46,16 @@ async function onPaymentSucceeded(paymentIntent: Stripe.PaymentIntent, client: S
   });
 
   if (!order) {
+    const orderId = paymentIntent.metadata?.orderId;
+    // HAG-124: la cuenta de Stripe de prueba es compartida. Un pago creado por OTRA instalación (p. ej. las
+    // pruebas locales) no tiene orden aquí y no es un incidente de esta tienda: se ignora sin avisar.
+    const origin = paymentIntent.metadata?.origin;
+    if (origin && origin !== appOrigin()) {
+      console.info(`[stripe-webhook] PaymentIntent ${paymentIntent.id} de otro origen (${origin}); ignorado`);
+      return { action: "ignored:foreign_origin" };
+    }
     // Un pago cobrado sin orden asociada no debería existir: el checkout solo entrega el clientSecret de
     // PaymentIntents ya asociados. Si aparece, lo revisa una persona (no se reembolsa a ciegas).
-    const orderId = paymentIntent.metadata?.orderId;
     console.error(`[stripe-webhook] PaymentIntent ${paymentIntent.id} cobrado sin orden asociada (metadata.orderId=${orderId ?? "—"})`);
     await notifyAdmin({
       dedupeKey: `orphan-payment:${paymentIntent.id}`,
