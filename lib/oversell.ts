@@ -1,7 +1,7 @@
 import type Stripe from "stripe";
 import { db } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
-import { notifyAdminRefundFailed } from "@/lib/order-emails";
+import { deliverPending, enqueueAdminAlert } from "@/lib/order-emails";
 
 // CANCELLED_REFUNDED: Stripe confirmó el refund (succeeded).
 // REFUND_PENDING: refund creado pero sin concluir (pending / requires_action); la orden queda
@@ -80,27 +80,51 @@ export async function applyRefundOutcome(orderId: string, refund: Stripe.Refund)
     case "failed":
     case "canceled": {
       const reason = `refund ${refund.id} en estado ${refund.status}${refund.failure_reason ? ` (${refund.failure_reason})` : ""}`;
-      const failed = await db.order.updateMany({
-        where: {
-          id: orderId,
-          OR: [
-            { status: "OVERSELL_REFUND_PENDING", OR: [{ stripeRefundId: null }, { stripeRefundId: refund.id }] },
-            { status: "CANCELLED_REFUNDED", stripeRefundId: refund.id },
-          ],
-        },
-        data: { status: "OVERSELL_REFUND_FAILED", stripeRefundId: refund.id },
+      // Transición y aviso en una sola transacción: si el fallo queda registrado, el aviso también.
+      const transitioned = await db.$transaction(async (tx) => {
+        const failed = await tx.order.updateMany({
+          where: {
+            id: orderId,
+            OR: [
+              { status: "OVERSELL_REFUND_PENDING", OR: [{ stripeRefundId: null }, { stripeRefundId: refund.id }] },
+              { status: "CANCELLED_REFUNDED", stripeRefundId: refund.id },
+            ],
+          },
+          data: { status: "OVERSELL_REFUND_FAILED", stripeRefundId: refund.id },
+        });
+        if (failed.count === 1) await enqueueAdminAlert(tx, refundFailedAlert(orderId, refund.id, reason));
+        return failed.count === 1;
       });
-      if (failed.count === 1) {
+      if (transitioned) {
         console.error(`[oversell] refund falló para la orden ${orderId}: ${reason}`);
-        await notifyAdminRefundFailed(orderId, reason);
+        await deliverPending({ orderId, limit: 3, budgetMs: 8_000 });
         return "OVERSELL_REFUND_FAILED";
       }
       return skippedAfter(orderId, refund);
     }
-    case "requires_action":
-      // Requiere intervención (p. ej. datos del cliente): se avisa al admin y se mantiene pendiente.
-      await notifyAdminRefundFailed(orderId, `refund ${refund.id} requiere acción en Stripe`);
+    case "requires_action": {
+      // Requiere intervención (p. ej. datos del cliente): se mantiene pendiente y se avisa UNA vez por refund,
+      // y solo si sigue aplicando: la orden debe seguir OVERSELL_REFUND_PENDING con este refund. El UPDATE
+      // condicionado bloquea la fila hasta el commit, así una resolución concurrente no se cruza con el aviso.
+      // Un fallo al encolar se propaga (el webhook responde 5xx y Stripe reintenta).
+      const applies = await db.$transaction(async (tx) => {
+        const still = await tx.order.updateMany({
+          where: { id: orderId, status: "OVERSELL_REFUND_PENDING", OR: [{ stripeRefundId: null }, { stripeRefundId: refund.id }] },
+          data: { stripeRefundId: refund.id },
+        });
+        if (still.count !== 1) return false;
+        await enqueueAdminAlert(tx, {
+          dedupeKey: `refund-requires-action:${orderId}:${refund.id}`,
+          title: "Refund requires action in Stripe",
+          details: `Order ${orderId}: refund ${refund.id} needs action in the Stripe dashboard before it can complete.`,
+          orderId,
+        });
+        return true;
+      });
+      if (!applies) return skippedAfter(orderId, refund);
+      await deliverPending({ orderId, limit: 3, budgetMs: 8_000 });
       return "REFUND_PENDING";
+    }
     default:
       // pending (u otro estado no final): se reconcilia en el próximo intento o evento.
       return "REFUND_PENDING";
@@ -146,10 +170,23 @@ async function findOrCreateRefund(
 // Fallo sin refund (la orden no tiene PaymentIntent): solo desde OVERSELL_REFUND_PENDING.
 async function markFailed(orderId: string, reason: string): Promise<OversellResult> {
   console.error(`[oversell] refund falló para la orden ${orderId}: ${reason}`);
-  const failed = await db.order.updateMany({
-    where: { id: orderId, status: "OVERSELL_REFUND_PENDING" },
-    data: { status: "OVERSELL_REFUND_FAILED" },
+  const transitioned = await db.$transaction(async (tx) => {
+    const failed = await tx.order.updateMany({
+      where: { id: orderId, status: "OVERSELL_REFUND_PENDING" },
+      data: { status: "OVERSELL_REFUND_FAILED" },
+    });
+    if (failed.count === 1) await enqueueAdminAlert(tx, refundFailedAlert(orderId, "sin-refund", reason));
+    return failed.count === 1;
   });
-  if (failed.count === 1) await notifyAdminRefundFailed(orderId, reason);
-  return failed.count === 1 ? "OVERSELL_REFUND_FAILED" : "SKIPPED";
+  if (transitioned) await deliverPending({ orderId, limit: 3, budgetMs: 8_000 });
+  return transitioned ? "OVERSELL_REFUND_FAILED" : "SKIPPED";
+}
+
+function refundFailedAlert(orderId: string, refundId: string, reason: string) {
+  return {
+    dedupeKey: `refund-failed:${orderId}:${refundId}`,
+    title: "Refund failed — manual refund needed",
+    details: `Order ${orderId}: an item sold out after payment and the automatic refund could not be completed (${reason}).\nThe customer was told our team will refund them manually. Refund them from the Stripe dashboard and contact them.`,
+    orderId,
+  };
 }

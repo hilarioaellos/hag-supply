@@ -169,3 +169,42 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
 }
+
+enum EmailKind {
+  ORDER_CONFIRMATION
+  ADMIN_ALERT
+}
+
+enum EmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+// Bandeja de salida durable (HAG-103): cada email se registra en la misma transacción que el cambio de
+// estado que lo origina y se envía después, con reintentos. dedupeKey evita duplicados (también se usa como
+// Idempotency-Key en Resend).
+model EmailOutbox {
+  id                String      @id @default(cuid())
+  dedupeKey         String      @unique
+  kind              EmailKind
+  orderId           String?
+  to                String
+  subject           String
+  html              String
+  text              String
+  status            EmailStatus @default(PENDING)
+  attempts          Int         @default(0)
+  lastError         String?
+  providerMessageId String?
+  nextAttemptAt     DateTime    @default(now())
+  lockedUntil       DateTime?
+  claimToken        String?
+  sentAt            DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([orderId])
+}

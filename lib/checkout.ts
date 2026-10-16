@@ -322,6 +322,8 @@ export async function reconcileOrderPayment(orderId: string, client: StripeClien
   }
 
   if (order.status !== "PENDING_PAYMENT" || !order.stripePaymentIntentId) {
+    // Orden ya pagada: la visita también reintenta su email de confirmación si quedó pendiente (HAG-103).
+    if (PAID_STATUSES.has(order.status)) await sendOrderConfirmation(orderId);
     return { status: order.status, paymentIntentStatus: null };
   }
 

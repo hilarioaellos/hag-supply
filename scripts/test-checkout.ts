@@ -33,11 +33,18 @@ type Lib = {
   reconcileOrderPayment: typeof import("@/lib/checkout").reconcileOrderPayment;
   handleStripeEvent: typeof import("@/lib/stripe-webhook").handleStripeEvent;
   webhookPOST: typeof import("@/app/api/webhooks/stripe/route").POST;
+  emails: typeof import("@/lib/order-emails");
+  templates: typeof import("@/lib/email-templates");
+  cronGET: typeof import("@/app/api/cron/email-outbox/route").GET;
 };
 
 // Secreto de firma SOLO para estas pruebas: los eventos se firman localmente con generateTestHeaderString.
 const TEST_WEBHOOK_SECRET = "whsec_test_local_only";
 process.env.STRIPE_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
+// Nunca enviar emails reales desde las pruebas: sin clave, el envío por Resend queda "no configurado".
+delete process.env.RESEND_API_KEY;
+delete process.env.ADMIN_ALERT_EMAIL; // las pruebas verifican el destinatario por defecto
+process.env.CRON_SECRET = "cron_test_local_only";
 
 const SHIPPING = { name: "Test Buyer", line1: "100 Main St", line2: null, city: "Miami", state: "FL", zip: "33101" };
 let passed = 0;
@@ -64,11 +71,14 @@ async function main() {
     reconcileOrderPayment: (await import("@/lib/checkout")).reconcileOrderPayment,
     handleStripeEvent: (await import("@/lib/stripe-webhook")).handleStripeEvent,
     webhookPOST: (await import("@/app/api/webhooks/stripe/route")).POST,
+    emails: await import("@/lib/order-emails"),
+    templates: await import("@/lib/email-templates"),
+    cronGET: (await import("@/app/api/cron/email-outbox/route")).GET,
   };
   const { db, stripe } = lib;
 
   // ── Datos base ──
-  await db.$executeRawUnsafe(`TRUNCATE "OrderItem", "Order", "CartItem", "ProductMedia", "Product", "Category", "User" CASCADE`);
+  await db.$executeRawUnsafe(`TRUNCATE "EmailOutbox", "OrderItem", "Order", "CartItem", "ProductMedia", "Product", "Category", "User" CASCADE`);
   const category = await db.category.create({ data: { name: "Test", slug: "test" } });
   const mk = (sku: string, price: number, stock: number) =>
     db.product.create({ data: { name: `Producto ${sku}`, slug: sku.toLowerCase(), description: "x", sku, price, stock, categoryId: category.id } });
@@ -747,16 +757,8 @@ async function main() {
     assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
   });
 
-  // Avisos al admin: notifyAdminRefundFailed escribe "[order-emails] REFUND FALLIDO en la orden <id>" (HAG-103
-  // los convertirá en email). Se cuentan para comprobar que salga exactamente uno por transición efectiva.
-  const adminAlerts: string[] = [];
-  const originalConsoleError = console.error;
-  console.error = (...args: unknown[]) => {
-    const line = args.map(String).join(" ");
-    if (line.includes("[order-emails] REFUND FALLIDO")) adminAlerts.push(line);
-    originalConsoleError(...args);
-  };
-  const alertsFor = (orderId: string) => adminAlerts.filter((l) => l.includes(orderId)).length;
+  // Avisos al admin (HAG-103): filas ADMIN_ALERT de la bandeja de salida de esa orden.
+  const alertsFor = (orderId: string) => db.emailOutbox.count({ where: { orderId, kind: "ADMIN_ALERT" } });
   // Stripe "dice" que el refund falló (lo que devuelve refunds.retrieve en ese momento).
   const refundFailedClient = (orderId: string) =>
     wrap({ refunds: { retrieve: async (id: string) => ({ ...refundObj(id, "failed", orderId), failure_reason: "expired_or_canceled_card" }) } });
@@ -774,7 +776,7 @@ async function main() {
     assert.deepEqual(await lib.handleStripeEvent(failedEvt, failing), { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
     assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED");
     assert.deepEqual(await lib.handleStripeEvent(failedEvt, failing), { action: "refund:SKIPPED", orderId: order.id });
-    assert.equal(alertsFor(order.id), 1);
+    assert.equal(await alertsFor(order.id), 1);
   });
 
   console.log("\nHAG-95 NO-GO v1 · Mayor — refund `succeeded` y `failed` del MISMO refund en paralelo (PostgreSQL real)");
@@ -819,7 +821,7 @@ async function main() {
     b.g.open();
     assert.deepEqual(await bDone, { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
     assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED");
-    assert.equal(alertsFor(order.id), 1);
+    assert.equal(await alertsFor(order.id), 1);
     assert.equal(refundCreates, 0);
   });
 
@@ -837,7 +839,7 @@ async function main() {
     a.g.open();
     assert.deepEqual(await aDone, { action: "refund:SKIPPED", orderId: order.id });
     assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED", "un succeeded atrasado no revierte el fallo");
-    assert.equal(alertsFor(order.id), 1);
+    assert.equal(await alertsFor(order.id), 1);
     assert.equal(refundCreates, 0);
   });
 
@@ -856,7 +858,7 @@ async function main() {
     b.g.open();
     assert.deepEqual(await bDone, { action: "refund:OVERSELL_REFUND_FAILED", orderId: order.id });
     assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_FAILED");
-    assert.equal(alertsFor(order.id), 1);
+    assert.equal(await alertsFor(order.id), 1);
     assert.equal(refundCreates, 0);
   });
 
@@ -872,7 +874,7 @@ async function main() {
     b2.g.open();
     const actions = (await Promise.all([d1, d2])).map((r) => r.action).sort();
     assert.deepEqual(actions, ["refund:OVERSELL_REFUND_FAILED", "refund:SKIPPED"]);
-    assert.equal(alertsFor(order.id), 1);
+    assert.equal(await alertsFor(order.id), 1);
   });
 
   await test("refund de OTRA orden con metadata ajena → ignorado, la orden no cambia", async () => {
@@ -898,6 +900,357 @@ async function main() {
   await test("refund ajeno (sin orden) y tipos de evento no manejados → ignorados con 200", async () => {
     assert.deepEqual(await lib.handleStripeEvent(evt("refund.updated", { id: "re_ajeno", object: "refund", status: "succeeded", metadata: {} })), { action: "ignored:refund_without_order" });
     assert.deepEqual(await postWebhook(evt("charge.succeeded", { id: "ch_x" })), { status: 200, body: { received: true } });
+  });
+
+  console.log("\nHAG-103 — emails con bandeja de salida durable");
+
+  type Sent = Parameters<import("@/lib/order-emails").EmailSender>[0];
+  // Proveedor falso: registra lo enviado; `fail` decide si responde con error.
+  const fakeSender = (opts: { fail?: boolean; delayMs?: number } = {}) => {
+    const sent: Sent[] = [];
+    const sender = async (email: Sent) => {
+      if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
+      if (opts.fail) throw new Error("Resend: 503 simulado");
+      sent.push(email);
+      return { id: `msg_${sent.length}` };
+    };
+    return { sent, sender };
+  };
+  const confirmationOf = (orderId: string) => db.emailOutbox.findUnique({ where: { dedupeKey: `order-confirmation:${orderId}` } });
+  const confirmedOrder = async (tag: string, name = `Producto ${tag}`) => {
+    const user = await newUser();
+    const p = await db.product.create({ data: { name, slug: tag.toLowerCase(), description: "x", sku: tag, price: 12.5, stock: 5, categoryId: category.id } });
+    const order = await db.order.create({
+      data: {
+        orderNumber: `T-${tag}`, userId: user.id, buyerEmail: user.email, buyerName: "Ana María Pérez", subtotal: 25, total: 25,
+        shippingName: "Ana María Pérez", shippingLine1: "1 Ocean Dr", shippingLine2: "Apt 4", shippingCity: "Miami", shippingState: "FL", shippingZip: "33139",
+        items: { create: [{ productId: p.id, productName: name, quantity: 2, unitPrice: 12.5, total: 25 }] },
+      },
+    });
+    return { user, product: p, order };
+  };
+
+  await test("confirmOrder encola la confirmación en la MISMA transacción; con oversell (rollback) no queda email", async () => {
+    const { order } = await confirmedOrder("E1");
+    assert.equal(await lib.confirmOrder(order.id), "confirmed");
+    const email = await confirmationOf(order.id);
+    assert.ok(email);
+    assert.equal(email!.kind, "ORDER_CONFIRMATION");
+    assert.equal(email!.status, "PENDING");
+    assert.equal(email!.to, (await db.user.findUniqueOrThrow({ where: { id: order.userId } })).email);
+    const { product, order: o2 } = await confirmedOrder("E1B");
+    await db.product.update({ where: { id: product.id }, data: { stock: 1 } });
+    assert.equal(await lib.confirmOrder(o2.id), "oversell");
+    assert.equal(await confirmationOf(o2.id), null, "la transacción revertida no deja email");
+  });
+
+  await test("doble confirmOrder concurrente → una sola confirmación encolada", async () => {
+    const { order } = await confirmedOrder("E2");
+    await Promise.all([lib.confirmOrder(order.id), lib.confirmOrder(order.id)]);
+    assert.equal(await db.emailOutbox.count({ where: { orderId: order.id, kind: "ORDER_CONFIRMATION" } }), 1);
+  });
+
+  await test("plantilla: número, items, total, dirección, enlace, Reply-To; escapa HTML del nombre del producto", async () => {
+    const { order } = await confirmedOrder("E3", `Taza <script>alert(1)</script> & "Co"`);
+    await lib.confirmOrder(order.id);
+    const email = (await confirmationOf(order.id))!;
+    assert.equal(email.subject, `Order confirmed — T-E3`);
+    for (const piece of ["T-E3", "Thank you for your order, Ana!", "2 × $12.50", "$25.00", "1 Ocean Dr", "Apt 4", "Miami, FL 33139", `/order-confirmation/${order.id}`]) {
+      assert.ok(email.html.includes(piece), `HTML sin "${piece}"`);
+    }
+    assert.ok(!email.html.includes("<script>"), "el HTML no debe contener el script sin escapar");
+    assert.ok(email.html.includes("&lt;script&gt;"));
+    assert.ok(email.text.includes("Order number: T-E3") && email.text.includes("Total: $25.00"));
+    const { sent, sender } = fakeSender();
+    assert.equal(await lib.emails.deliverEmail(email.id, sender), "sent");
+    assert.equal(sent[0].from, "HAG Supply <orders@hagpartner.com>");
+    assert.equal(sent[0].replyTo, "orders@hagpartner.com");
+    assert.equal(sent[0].idempotencyKey, `order-confirmation:${order.id}`);
+  });
+
+  await test("envío OK → SENT con providerMessageId; reintento posterior no reenvía", async () => {
+    const { order } = await confirmedOrder("E4");
+    await lib.confirmOrder(order.id);
+    const { sent, sender } = fakeSender();
+    await lib.emails.sendOrderConfirmation(order.id, sender);
+    const email = (await confirmationOf(order.id))!;
+    assert.equal(email.status, "SENT");
+    assert.equal(email.providerMessageId, "msg_1");
+    assert.ok(email.sentAt);
+    await lib.emails.sendOrderConfirmation(order.id, sender);
+    assert.equal(sent.length, 1);
+  });
+
+  await test("sin RESEND_API_KEY → queda PENDING sin gastar intentos; al configurarse se envía", async () => {
+    const { order } = await confirmedOrder("E5");
+    await lib.confirmOrder(order.id);
+    const email = (await confirmationOf(order.id))!;
+    assert.equal(await lib.emails.deliverEmail(email.id), "not_configured");
+    let after = (await confirmationOf(order.id))!;
+    assert.equal(after.status, "PENDING");
+    assert.equal(after.attempts, 0);
+    const { sender } = fakeSender();
+    assert.equal(await lib.emails.deliverEmail(email.id, sender), "sent");
+    after = (await confirmationOf(order.id))!;
+    assert.equal(after.status, "SENT");
+    assert.equal(after.attempts, 1);
+  });
+
+  await test("fallo del proveedor → PENDING con espera creciente; tras 8 intentos → FAILED", async () => {
+    const { order } = await confirmedOrder("E6");
+    await lib.confirmOrder(order.id);
+    const id = (await confirmationOf(order.id))!.id;
+    const { sender } = fakeSender({ fail: true });
+    assert.equal(await lib.emails.deliverEmail(id, sender), "retry");
+    let e = (await confirmationOf(order.id))!;
+    assert.equal(e.status, "PENDING");
+    assert.equal(e.attempts, 1);
+    assert.ok(e.nextAttemptAt.getTime() > Date.now() + 50_000, "espera ~1 min antes del próximo intento");
+    assert.match(e.lastError ?? "", /503 simulado/);
+    assert.equal(await lib.emails.deliverEmail(id, sender), "skipped", "no se reintenta antes de tiempo");
+    for (let i = 2; i <= 8; i++) {
+      await db.emailOutbox.update({ where: { id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
+      assert.equal(await lib.emails.deliverEmail(id, sender), i < 8 ? "retry" : "failed");
+    }
+    e = (await confirmationOf(order.id))!;
+    assert.equal(e.status, "FAILED");
+    assert.equal(e.attempts, 8);
+  });
+
+  await test("dos entregas concurrentes del mismo email → el proveedor recibe UN envío", async () => {
+    const { order } = await confirmedOrder("E7");
+    await lib.confirmOrder(order.id);
+    const id = (await confirmationOf(order.id))!.id;
+    const { sent, sender } = fakeSender({ delayMs: 300 });
+    const results = await Promise.all([lib.emails.deliverEmail(id, sender), lib.emails.deliverEmail(id, sender), lib.emails.deliverPending({ orderId: order.id, sender })]);
+    assert.equal(sent.length, 1, JSON.stringify(results));
+    assert.equal((await confirmationOf(order.id))!.status, "SENT");
+  });
+
+  await test("lock vencido (proceso caído en SENDING) → se retoma y se envía", async () => {
+    const { order } = await confirmedOrder("E8");
+    await lib.confirmOrder(order.id);
+    const id = (await confirmationOf(order.id))!.id;
+    await db.emailOutbox.update({ where: { id }, data: { status: "SENDING", lockedUntil: new Date(Date.now() - 1000), attempts: 1 } });
+    const { sent, sender } = fakeSender();
+    assert.equal(await lib.emails.deliverEmail(id, sender), "sent");
+    assert.equal(sent.length, 1);
+  });
+
+  await test("refund `requires_action` repetido (eventos duplicados) → UN solo aviso al admin (observación del auditor)", async () => {
+    const order = await refundRaceOrder("E9");
+    const ra = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "requires_action", order.id) } });
+    const e = refundEvt("refund.updated", order.stripeRefundId!, order.id, "requires_action");
+    for (let i = 0; i < 3; i++) assert.deepEqual(await lib.handleStripeEvent(e, ra), { action: "refund:REFUND_PENDING", orderId: order.id });
+    assert.equal(await alertsFor(order.id), 1);
+    assert.equal((await orderOf(order.id)).status, "OVERSELL_REFUND_PENDING");
+  });
+
+  await test("aviso de refund fallido: va a ADMIN_ALERT_EMAIL (por defecto alertas@hagpartner.com) con datos útiles", async () => {
+    const order = await refundRaceOrder("E10");
+    await lib.handleStripeEvent(refundEvt("refund.failed", order.stripeRefundId!, order.id, "failed"), refundFailedClient(order.id));
+    const alert = await db.emailOutbox.findFirstOrThrow({ where: { orderId: order.id, kind: "ADMIN_ALERT" } });
+    assert.equal(alert.to, "alertas@hagpartner.com");
+    assert.match(alert.subject, /Refund failed/);
+    assert.ok(alert.text.includes(order.id) && alert.text.includes(order.stripeRefundId!));
+    assert.ok(alert.html.includes(`/admin/orders/${order.id}`));
+  });
+
+  await test("pago sin orden repetido → UN solo aviso (dedupe por PaymentIntent)", async () => {
+    const orphan = evt("payment_intent.succeeded", { id: "pi_orphan_dedupe", object: "payment_intent", status: "succeeded", metadata: {} });
+    await lib.handleStripeEvent(orphan);
+    await lib.handleStripeEvent(orphan);
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_orphan_dedupe" } }), 1);
+  });
+
+  await test("webhook payment_intent.succeeded con pago real → orden confirmada y confirmación encolada", async () => {
+    const { order } = await pendingWithPayment("E12");
+    const pi = await pay(order.stripePaymentIntentId!);
+    assert.equal((await postWebhook(evt("payment_intent.succeeded", pi))).status, 200);
+    assert.equal((await orderOf(order.id)).status, "PAYMENT_CONFIRMED");
+    const email = await confirmationOf(order.id);
+    assert.ok(email);
+    assert.equal(email!.status, "PENDING", "sin clave de Resend en pruebas queda pendiente para el reintento");
+  });
+
+  console.log("\nHAG-103 NO-GO v1 · Mayor 1 — persistir el aviso es obligatorio (fallo de escritura → 5xx y reintento)");
+
+  // Middleware de prueba: la próxima escritura createMany en EmailOutbox falla (fallo transitorio de la base).
+  let failNextOutboxWrite = false;
+  db.$use(async (params, next) => {
+    if (failNextOutboxWrite && params.model === "EmailOutbox" && params.action === "createMany") {
+      failNextOutboxWrite = false;
+      throw new Error("fallo transitorio simulado de PostgreSQL al escribir EmailOutbox");
+    }
+    return next(params);
+  });
+
+  await test("pago huérfano: falla el encolado → webhook 500 y sin fila; reenvío → 200 y UNA fila", async () => {
+    const orphan = evt("payment_intent.succeeded", { id: "pi_orphan_fail_write", object: "payment_intent", status: "succeeded", metadata: {} });
+    failNextOutboxWrite = true;
+    assert.equal((await postWebhook(orphan)).status, 500);
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_orphan_fail_write" } }), 0);
+    assert.equal((await postWebhook(orphan)).status, 200);
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_orphan_fail_write" } }), 1);
+    assert.equal((await postWebhook(orphan)).status, 200, "con el aviso ya persistido (dedupe) sigue respondiendo 200");
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: "admin:orphan-payment:pi_orphan_fail_write" } }), 1);
+  });
+
+  await test("requires_action: falla el encolado → el evento falla (5xx), sin fila; reintento → UNA fila", async () => {
+    const order = await refundRaceOrder("F2");
+    const ra = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "requires_action", order.id) } });
+    const e = refundEvt("refund.updated", order.stripeRefundId!, order.id, "requires_action");
+    failNextOutboxWrite = true;
+    await assert.rejects(lib.handleStripeEvent(e, ra));
+    assert.equal(await alertsFor(order.id), 0);
+    assert.deepEqual(await lib.handleStripeEvent(e, ra), { action: "refund:REFUND_PENDING", orderId: order.id });
+    assert.equal(await alertsFor(order.id), 1);
+  });
+
+  console.log("\nHAG-103 NO-GO v1 · Observación — requires_action solo si sigue aplicando");
+
+  await test("requires_action atrasado con la orden ya CANCELLED_REFUNDED → sin aviso", async () => {
+    const order = await refundRaceOrder("F3");
+    await db.order.update({ where: { id: order.id }, data: { status: "CANCELLED_REFUNDED" } });
+    const ra = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "requires_action", order.id) } });
+    assert.deepEqual(await lib.handleStripeEvent(refundEvt("refund.updated", order.stripeRefundId!, order.id, "requires_action"), ra), { action: "refund:SKIPPED", orderId: order.id });
+    assert.equal(await alertsFor(order.id), 0);
+  });
+
+  await test("requires_action de OTRO refund (la orden tiene uno distinto guardado) → sin aviso", async () => {
+    const order = await refundRaceOrder("F4");
+    const ra = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "requires_action", order.id) } });
+    const r = await lib.handleStripeEvent(refundEvt("refund.updated", "re_otro_F4", order.id, "requires_action"), ra);
+    assert.deepEqual(r, { action: "refund:SKIPPED", orderId: order.id });
+    assert.equal(await alertsFor(order.id), 0);
+    assert.equal((await orderOf(order.id)).stripeRefundId, order.stripeRefundId, "el refund guardado no cambia");
+  });
+
+  console.log("\nHAG-103 NO-GO v1 · Mayor 2 — un dueño viejo del lock no pisa el resultado del nuevo");
+
+  // Proveedor cuya respuesta se pausa hasta abrir la compuerta y luego responde según `outcome`.
+  const gatedSender = (outcome: "ok" | "error" | "not_configured", id = "msg_A") => {
+    const g = gate();
+    const sender = async () => {
+      g.entered();
+      await g.opened;
+      if (outcome === "error") throw new Error("Resend: 503 tardío");
+      if (outcome === "not_configured") throw new lib.emails.EmailNotConfiguredError("sin clave (tardío)");
+      return { id };
+    };
+    return { g, sender };
+  };
+  const expireLock = (id: string) => db.emailOutbox.update({ where: { id }, data: { lockedUntil: new Date(Date.now() - 1000) } });
+  const queuedConfirmation = async (tag: string) => {
+    const { order } = await confirmedOrder(tag);
+    await lib.confirmOrder(order.id);
+    return (await confirmationOf(order.id))!.id;
+  };
+
+  await test("A vence, B envía OK, A termina con ERROR → queda SENT con el id de B", async () => {
+    const id = await queuedConfirmation("L1");
+    const a = gatedSender("error");
+    const aDone = lib.emails.deliverEmail(id, a.sender);
+    await a.g.reached;
+    await expireLock(id);
+    assert.equal(await lib.emails.deliverEmail(id, fakeSender().sender), "sent");
+    a.g.open();
+    assert.equal(await aDone, "skipped");
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(row.status, "SENT");
+    assert.equal(row.providerMessageId, "msg_1");
+  });
+
+  await test("A vence, B reclama, A termina OK → A no libera ni pisa el reclamo de B; luego B → SENT", async () => {
+    const id = await queuedConfirmation("L2");
+    const a = gatedSender("ok", "msg_A");
+    const aDone = lib.emails.deliverEmail(id, a.sender);
+    await a.g.reached;
+    await expireLock(id);
+    const b = gatedSender("ok", "msg_B");
+    const bDone = lib.emails.deliverEmail(id, b.sender);
+    await b.g.reached;
+    const bToken = (await db.emailOutbox.findUniqueOrThrow({ where: { id } })).claimToken;
+    a.g.open();
+    assert.equal(await aDone, "skipped");
+    const mid = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(mid.status, "SENDING");
+    assert.equal(mid.claimToken, bToken, "el reclamo sigue siendo de B");
+    b.g.open();
+    assert.equal(await bDone, "sent");
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(row.status, "SENT");
+    assert.equal(row.providerMessageId, "msg_B");
+  });
+
+  await test("rama not_configured: A vence, B envía OK, A recibe 'sin clave' → sigue SENT y no se descuentan intentos", async () => {
+    const id = await queuedConfirmation("L3");
+    const a = gatedSender("not_configured");
+    const aDone = lib.emails.deliverEmail(id, a.sender);
+    await a.g.reached;
+    await expireLock(id);
+    assert.equal(await lib.emails.deliverEmail(id, fakeSender().sender), "sent");
+    const attempts = (await db.emailOutbox.findUniqueOrThrow({ where: { id } })).attempts;
+    a.g.open();
+    assert.equal(await aDone, "skipped");
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(row.status, "SENT");
+    assert.equal(row.attempts, attempts);
+  });
+
+  await test("timeout del proveedor (EMAIL_SEND_TIMEOUT_MS) → retry con el error, sin quedar en SENDING", async () => {
+    const id = await queuedConfirmation("L4");
+    process.env.EMAIL_SEND_TIMEOUT_MS = "200";
+    try {
+      const never = async () => new Promise<{ id: string }>(() => {});
+      assert.equal(await lib.emails.deliverEmail(id, never), "retry");
+    } finally {
+      delete process.env.EMAIL_SEND_TIMEOUT_MS;
+    }
+    const row = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+    assert.equal(row.status, "PENDING");
+    assert.equal(row.claimToken, null);
+    assert.match(row.lastError ?? "", /tiempo de envío agotado/);
+  });
+
+  console.log("\nHAG-103 NO-GO v1 · Observaciones — presupuesto de tiempo y reintento desde la confirmación");
+
+  await test("deliverPending con budgetMs no empieza envíos nuevos pasado el presupuesto", async () => {
+    await db.emailOutbox.updateMany({ where: { status: "PENDING" }, data: { status: "FAILED" } }); // aislar el lote
+    const ids = [] as string[];
+    for (const t of ["B1", "B2", "B3", "B4"]) ids.push(await queuedConfirmation(t));
+    const { sent, sender } = fakeSender({ delayMs: 300 });
+    const started = Date.now();
+    const counts = await lib.emails.deliverPending({ sender, budgetMs: 450 });
+    assert.ok(counts.sent >= 1 && counts.sent <= 2, JSON.stringify(counts));
+    assert.equal(sent.length, counts.sent);
+    assert.ok(Date.now() - started < 1000);
+    assert.equal(await db.emailOutbox.count({ where: { id: { in: ids }, status: "PENDING" } }), 4 - counts.sent);
+  });
+
+  await test("visitar la confirmación de una orden ya pagada intenta enviar su email pendiente", async () => {
+    const { order } = await confirmedOrder("V1");
+    await lib.confirmOrder(order.id);
+    const before = (await confirmationOf(order.id))!;
+    assert.equal(before.lastError, null);
+    const r = await lib.reconcileOrderPayment(order.id);
+    assert.deepEqual(r, { status: "PAYMENT_CONFIRMED", paymentIntentStatus: null });
+    const after = (await confirmationOf(order.id))!;
+    assert.match(after.lastError ?? "", /RESEND_API_KEY no configurada/, "se intentó la entrega (sin clave en pruebas)");
+    assert.equal(after.status, "PENDING");
+  });
+
+  await test("cron: sin CRON_SECRET → 503; secreto incorrecto → 401; correcto → 200 y entrega lo vencido", async () => {
+    const call = (auth?: string) => lib.cronGET(new Request("http://localhost/api/cron/email-outbox", { headers: auth ? { authorization: auth } : {} }));
+    const saved = process.env.CRON_SECRET;
+    delete process.env.CRON_SECRET;
+    assert.equal((await call(`Bearer ${saved}`)).status, 503);
+    process.env.CRON_SECRET = saved;
+    assert.equal((await call("Bearer otro")).status, 401);
+    const res = await call(`Bearer ${saved}`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok("not_configured" in body && "sent" in body);
   });
 
   console.log(`\n${passed} pruebas OK${process.exitCode ? " — HAY FALLAS" : ""}`);

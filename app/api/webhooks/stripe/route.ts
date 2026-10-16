@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
 import { handleStripeEvent } from "@/lib/stripe-webhook";
+import { deliverPending } from "@/lib/order-emails";
 
 // POST /api/webhooks/stripe — sin sesión; la autenticidad la da la firma de Stripe (plan MVP, sección D).
 // 200: procesado o ignorado de forma idempotente. 400: firma inválida. 5xx: fallo transitorio, Stripe reintenta.
@@ -28,6 +29,9 @@ export async function POST(req: Request) {
   try {
     const outcome = await handleStripeEvent(event);
     console.info(`[stripe-webhook] ${event.type} ${event.id} → ${outcome.action}${outcome.orderId ? ` (orden ${outcome.orderId})` : ""}`);
+    // Aprovecha la llamada para reintentar emails vencidos (HAG-103). Sus errores no cambian la respuesta, pero
+    // sí la demoran: se acota con un presupuesto de tiempo (y cada envío tiene su propio timeout).
+    await deliverPending({ limit: 3, budgetMs: 5_000 });
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error(`[stripe-webhook] ${event.type} ${event.id} falló:`, error instanceof Error ? error.message : error);

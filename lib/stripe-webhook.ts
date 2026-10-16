@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { stripe } from "@/lib/stripe";
 import { confirmOrder } from "@/lib/confirm-order";
 import { applyRefundOutcome, handleOversell } from "@/lib/oversell";
-import { notifyAdminRefundFailed, sendOrderConfirmation } from "@/lib/order-emails";
+import { notifyAdmin, sendOrderConfirmation } from "@/lib/order-emails";
 
 // Lógica del webhook de Stripe (plan MVP, sección D). app/api/webhooks/stripe/route.ts verifica la firma y
 // traduce el resultado: si esta función lanza, la ruta responde 5xx y Stripe reenvía el evento.
@@ -49,7 +49,12 @@ async function onPaymentSucceeded(paymentIntent: Stripe.PaymentIntent, client: S
     // PaymentIntents ya asociados. Si aparece, lo revisa una persona (no se reembolsa a ciegas).
     const orderId = paymentIntent.metadata?.orderId;
     console.error(`[stripe-webhook] PaymentIntent ${paymentIntent.id} cobrado sin orden asociada (metadata.orderId=${orderId ?? "—"})`);
-    await notifyAdminRefundFailed(orderId ?? paymentIntent.id, `pago ${paymentIntent.id} cobrado sin orden asociada: revisar en Stripe`);
+    await notifyAdmin({
+      dedupeKey: `orphan-payment:${paymentIntent.id}`,
+      title: "Payment received without an order",
+      details: `Stripe PaymentIntent ${paymentIntent.id} succeeded but no order is linked to it (metadata.orderId=${orderId ?? "—"}).\nReview it in the Stripe dashboard and refund or create the order manually.`,
+      orderId: null,
+    });
     return { action: "orphan_payment", orderId };
   }
 
