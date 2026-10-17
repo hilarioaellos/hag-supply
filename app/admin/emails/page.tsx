@@ -12,6 +12,8 @@ const KIND_LABEL: Record<string, string> = {
   ORDER_CONFIRMATION: "Order confirmation",
   ADMIN_NEW_ORDER: "New order (owner)",
   ADMIN_ALERT: "Admin alert",
+  ORDER_CANCELLED: "Order cancelled",
+  ORDER_REFUNDED: "Refund issued",
 };
 
 const fmt = (d: Date | null) =>

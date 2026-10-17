@@ -21,13 +21,15 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   OVERSELL_REFUND_PENDING: "Refund in Progress",
   OVERSELL_REFUND_FAILED: "Refund Failed",
   CANCELLED_REFUNDED: "Refunded",
+  CANCEL_REFUND_PENDING: "Cancelled — Refund in Progress",
+  CANCEL_REFUND_FAILED: "Cancelled — Refund in Progress",
 };
 
 type Banner = { icon: string; title: string; text: string; tone: "ok" | "wait" | "warn" };
 
 // Encabezado según el estado real de la orden (y del PaymentIntent mientras siga pendiente).
 // Los textos de reembolso describen solo lo que ya pasó: en curso, fallido o completado.
-function bannerFor(status: OrderStatus, paymentIntentStatus: string | null, buyerEmail: string): Banner {
+function bannerFor(status: OrderStatus, paymentIntentStatus: string | null, buyerEmail: string, cancelledByStore: boolean): Banner {
   switch (status) {
     case "PAYMENT_CONFIRMED":
     case "PROCESSING":
@@ -44,7 +46,24 @@ function bannerFor(status: OrderStatus, paymentIntentStatus: string | null, buye
         icon: "⚠️", tone: "warn", title: "We couldn't refund you automatically",
         text: `Sorry — an item sold out before your payment went through, and our automatic refund couldn't be completed. This order is flagged for our team, who will refund you manually and contact you at ${buyerEmail}. You don't need to do anything.`,
       };
+    case "CANCEL_REFUND_PENDING":
+      // Todavía no hay confirmación de Stripe: no se afirma que el reembolso se haya emitido.
+      return {
+        icon: "↩️", tone: "wait", title: "Order cancelled — refund being processed",
+        text: `This order was cancelled and will not be shipped. We're processing a full refund to your original payment method and will email you at ${buyerEmail} as soon as it has been issued.`,
+      };
+    case "CANCEL_REFUND_FAILED":
+      return {
+        icon: "⚠️", tone: "warn", title: "Order cancelled — our team is completing your refund",
+        text: `This order was cancelled and will not be shipped. Our automatic refund couldn't be completed, so our team is completing it manually and will email you at ${buyerEmail} once it has been issued. You don't need to do anything.`,
+      };
     case "CANCELLED_REFUNDED":
+      if (cancelledByStore) {
+        return {
+          icon: "↩️", tone: "warn", title: "Order cancelled and refunded",
+          text: "This order was cancelled and will not be shipped. We refunded your payment in full; refunds usually reach your card in 5–10 business days.",
+        };
+      }
       return {
         icon: "↩️", tone: "warn", title: "Order refunded",
         text: "An item sold out before your payment went through, so we refunded your payment in full. Refunds usually reach your card in 5–10 business days.",
@@ -94,7 +113,7 @@ export default async function OrderConfirmationPage({
     },
   });
 
-  const banner = bannerFor(order.status, paymentIntentStatus, order.buyerEmail);
+  const banner = bannerFor(order.status, paymentIntentStatus, order.buyerEmail, order.cancelledAt !== null);
   const retryable = order.status === "PENDING_PAYMENT" && banner.title === "Payment not completed";
 
   return (

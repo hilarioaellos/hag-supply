@@ -1,53 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { OrderStatus } from "@prisma/client";
 import { withAdmin } from "@/lib/auth-guards";
 import { db } from "@/lib/db";
-
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  PENDING_PAYMENT: [],
-  PAYMENT_CONFIRMED: ["PROCESSING"],
-  PROCESSING: ["SHIPPED"],
-  SHIPPED: ["DELIVERED"],
-  DELIVERED: [],
-  CANCELLED: [],
-  OVERSELL_REFUND_PENDING: [],
-  OVERSELL_REFUND_FAILED: [],
-  CANCELLED_REFUNDED: [],
-};
+import { ALLOWED_TRANSITIONS, changeOrderStatus } from "@/lib/order-status";
 
 export const PATCH = withAdmin(async (req: NextRequest, context: unknown) => {
   const params = await (context as { params: Promise<{ id: string }> }).params;
   const body = await req.json();
   const { status: newStatus } = body;
 
-  if (!newStatus) {
-    return NextResponse.json(
-      { error: "Status is required" },
-      { status: 400 }
-    );
+  if (!newStatus || !(newStatus in ALLOWED_TRANSITIONS)) {
+    return NextResponse.json({ error: "Status is required" }, { status: 400 });
   }
 
-  const order = await db.order.findUnique({
-    where: { id: params.id },
-  });
+  // Transición condicionada al estado leído (lib/order-status.ts): 409 si el pedido cambió en paralelo.
+  const result = await changeOrderStatus(params.id, newStatus as OrderStatus);
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.code });
 
-  if (!order) {
-    return NextResponse.json({ error: "Order not found" }, { status: 404 });
-  }
-
-  const allowed = ALLOWED_TRANSITIONS[order.status] || [];
-  if (!allowed.includes(newStatus)) {
-    return NextResponse.json(
-      {
-        error: `Cannot transition from ${order.status} to ${newStatus}`,
-      },
-      { status: 409 }
-    );
-  }
-
-  const updated = await db.order.update({
-    where: { id: params.id },
-    data: { status: newStatus },
-  });
-
+  const updated = await db.order.findUniqueOrThrow({ where: { id: params.id } });
   return NextResponse.json(updated);
 });

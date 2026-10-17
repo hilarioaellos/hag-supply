@@ -18,13 +18,19 @@ Responsable de todo lo que sigue: el dueño (hagpartnerllc@gmail.com). Los email
 
 Plazo prometido: confirmar por email y reembolsar en **2 días hábiles**.
 
-**Mientras no exista "Cancelar y reembolsar" en el admin** (pendiente antes de live):
-
-1. Confirmar que el pedido **no** está en `SHIPPED`. Si lo está, no se puede cancelar: aplica la devolución.
-2. Separar el pedido para que no se despache.
-3. En el dashboard de Stripe: Payments → el pago del pedido → **Refund** por el total.
-4. Responder al cliente confirmando la cancelación y el reembolso.
-5. **Limitación actual:** un reembolso hecho a mano en Stripe no cambia el estado del pedido en la tienda. El pedido sigue en `PAYMENT_CONFIRMED` y el stock no vuelve solo. Por eso, **antes de cobros reales**, debe existir la acción de admin que cancele, reembolse, devuelva el stock y deje registro.
+1. Abrir el pedido en **Admin → Orders**. El botón **"Cancel & refund"** solo aparece si el pedido está pagado y no despachado (`PAYMENT_CONFIRMED` o `PROCESSING`). Si ya está `SHIPPED`, no se puede cancelar: aplica la devolución.
+2. Pulsar **"Cancel & refund"**, confirmar y anotar el motivo. Con eso:
+   - el pedido queda cancelado (no se despacha),
+   - el stock vuelve al inventario,
+   - se reembolsa el total en Stripe,
+   - el cliente recibe el email "Order cancelled",
+   - y queda registrado quién canceló, cuándo y por qué.
+3. Resultado:
+   - **"Refunded"**: listo.
+   - **"Cancelled — Refund Pending"**: Stripe todavía lo procesa, o hubo un error de conexión. Pulsar **"Retry refund"**; si Stripe ya lo creó, lo concluye solo el webhook. Si el proceso se cortó antes de crearlo, **nadie lo reintenta solo**: a los 30 minutos el pedido aparece en la tarjeta roja del dashboard ("Orders with Refund Problems") y hay que pulsar "Retry refund".
+   - **"Cancelled — Refund Failed"**: llega un aviso por email. Reembolsar el total a mano en el dashboard de Stripe (Payments → el pago → Refund). Luego, en el pedido, pegar el ID del refund (`re_…`) en **"Mark refunded"**. La tienda lo verifica en Stripe (mismo pago, `succeeded`, monto completo), pasa el pedido a "Refunded", deja la nota de quién lo registró y manda al cliente el email "Refund issued". Hasta entonces el pedido sigue en la tarjeta roja.
+3b. **Emails al cliente:** "Order cancelled" sale al cancelar y dice que el reembolso está en gestión. "Refund issued" sale **solo** cuando Stripe confirma el reembolso, o al registrar el refund manual verificado. Si la confirmación del pedido aún no había salido, se anula y no se envía.
+4. **No reembolsar a mano en Stripe** un pedido que no se canceló con el botón: la tienda no se entera (el pedido seguiría "pagado" y el stock no vuelve).
 
 ## 4. Corrección de dirección
 
@@ -62,7 +68,7 @@ Solo antes del despacho. Responder confirmando la dirección nueva y usarla en l
 
 ## 9. Pendiente antes de cobros reales
 
-- Acción de admin **Cancelar y reembolsar**, más el **email de despacho** opcional.
+- ~~Acción de admin Cancelar y reembolsar~~ (hecha). Pendiente opcional: **email de despacho**.
 - Dirección postal comercial (PO Box o buzón) para devoluciones, y decidir si se publica.
 - Que contador o abogado revise Terms y Privacy, y confirme la obligación de sales tax.
 - Activar Stripe live, claves live y un webhook live con su propio secreto.

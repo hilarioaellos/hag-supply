@@ -7,6 +7,9 @@ import { db } from "@/lib/db";
 import Link from "next/link";
 import { OrderStatusSelect } from "@/components/admin/OrderStatusSelect";
 import { ConfirmPaymentButton } from "@/components/admin/ConfirmPaymentButton";
+import { CancelOrderButton } from "@/components/admin/CancelOrderButton";
+import { ManualRefundForm } from "@/components/admin/ManualRefundForm";
+import { STORE_TIME_ZONE } from "@/lib/order-number";
 
 export default async function OrderDetailPage({
   params,
@@ -46,6 +49,8 @@ export default async function OrderDetailPage({
     OVERSELL_REFUND_PENDING: "Refund Pending",
     OVERSELL_REFUND_FAILED: "Refund Failed",
     CANCELLED_REFUNDED: "Refunded",
+    CANCEL_REFUND_PENDING: "Cancelled — Refund Pending",
+    CANCEL_REFUND_FAILED: "Cancelled — Refund Failed",
   };
 
   return (
@@ -169,6 +174,35 @@ export default async function OrderDetailPage({
         {/* Confirm Payment Manually */}
         {order.status === "PENDING_PAYMENT" && order.stripePaymentIntentId && (
           <ConfirmPaymentButton orderId={order.id} />
+        )}
+
+        {/* Cancelar y reembolsar (pagado y no despachado) o reintentar un reembolso de cancelación pendiente */}
+        {(order.status === "PAYMENT_CONFIRMED" || order.status === "PROCESSING") && (
+          <div className="pt-4 border-t border-hag-border">
+            <CancelOrderButton orderId={order.id} total={order.total.toFixed(2)} />
+          </div>
+        )}
+        {order.status === "CANCEL_REFUND_PENDING" && (
+          <div className="pt-4 border-t border-hag-border">
+            <CancelOrderButton orderId={order.id} total={order.total.toFixed(2)} retry />
+          </div>
+        )}
+        {order.cancelledAt && (
+          <div className="pt-4 border-t border-hag-border text-[13px] text-hag-text-2 space-y-1">
+            <p>
+              Cancelled by <span className="font-semibold text-hag-text">{order.cancelledBy}</span> on{" "}
+              {order.cancelledAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: STORE_TIME_ZONE })}
+            </p>
+            {order.cancelReason && <p>Reason: {order.cancelReason}</p>}
+            {order.stripeRefundId && <p>Stripe refund: {order.stripeRefundId}</p>}
+            {order.status === "CANCEL_REFUND_FAILED" && (
+              <div className="space-y-2 pt-1">
+                <p className="text-red-700 font-semibold">The refund failed. Refund the customer manually in the Stripe dashboard.</p>
+                <ManualRefundForm orderId={order.id} />
+              </div>
+            )}
+            {order.notes && <p className="whitespace-pre-line">{order.notes}</p>}
+          </div>
         )}
 
         {/* Stripe Payment Intent */}

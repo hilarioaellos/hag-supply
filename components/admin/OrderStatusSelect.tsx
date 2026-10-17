@@ -12,7 +12,9 @@ type OrderStatus =
   | "CANCELLED"
   | "OVERSELL_REFUND_PENDING"
   | "OVERSELL_REFUND_FAILED"
-  | "CANCELLED_REFUNDED";
+  | "CANCELLED_REFUNDED"
+  | "CANCEL_REFUND_PENDING"
+  | "CANCEL_REFUND_FAILED";
 
 const STATUS_LABEL: Record<OrderStatus, string> = {
   PENDING_PAYMENT: "Pending Payment",
@@ -24,6 +26,8 @@ const STATUS_LABEL: Record<OrderStatus, string> = {
   OVERSELL_REFUND_PENDING: "Refund Pending",
   OVERSELL_REFUND_FAILED: "Refund Failed",
   CANCELLED_REFUNDED: "Refunded",
+  CANCEL_REFUND_PENDING: "Cancelled — Refund Pending",
+  CANCEL_REFUND_FAILED: "Cancelled — Refund Failed",
 };
 
 // Transiciones permitidas según estado actual
@@ -37,6 +41,8 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   OVERSELL_REFUND_PENDING: [],
   OVERSELL_REFUND_FAILED: [],
   CANCELLED_REFUNDED: [],
+  CANCEL_REFUND_PENDING: [],
+  CANCEL_REFUND_FAILED: [],
 };
 
 interface OrderStatusSelectProps {

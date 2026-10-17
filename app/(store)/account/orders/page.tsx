@@ -17,6 +17,8 @@ const STATUS_LABEL: Record<string, string> = {
   OVERSELL_REFUND_PENDING: "Refund Pending",
   OVERSELL_REFUND_FAILED: "Refund Failed",
   CANCELLED_REFUNDED: "Refunded",
+  CANCEL_REFUND_PENDING: "Cancelled — Refund Pending",
+  CANCEL_REFUND_FAILED: "Cancelled — Refund Pending",
 };
 
 const STATUS_COLOR: Record<string, string> = {
@@ -29,6 +31,8 @@ const STATUS_COLOR: Record<string, string> = {
   OVERSELL_REFUND_PENDING: "bg-orange-100 text-orange-800",
   OVERSELL_REFUND_FAILED: "bg-red-100 text-red-800",
   CANCELLED_REFUNDED: "bg-gray-100 text-gray-800",
+  CANCEL_REFUND_PENDING: "bg-orange-100 text-orange-800",
+  CANCEL_REFUND_FAILED: "bg-orange-100 text-orange-800",
 };
 
 export default async function OrdersPage() {

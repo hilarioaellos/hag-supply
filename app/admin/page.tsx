@@ -21,7 +21,14 @@ async function getDashboardStats() {
         },
       }),
       db.order.findMany({
-        where: { status: "OVERSELL_REFUND_FAILED" },
+        // Reembolsos fallidos, y cancelaciones cuyo reembolso sigue pendiente después de 30 min (p. ej. el
+        // proceso se cortó antes de crearlo): hay que reintentarlo desde el pedido.
+        where: {
+          OR: [
+            { status: { in: ["OVERSELL_REFUND_FAILED", "CANCEL_REFUND_FAILED"] } },
+            { status: "CANCEL_REFUND_PENDING", cancelledAt: { lt: new Date(Date.now() - 30 * 60 * 1000) } },
+          ],
+        },
         select: { id: true, orderNumber: true, buyerEmail: true },
       }),
     ]);
@@ -49,6 +56,8 @@ const STATUS_COLORS: Record<string, string> = {
   OVERSELL_REFUND_PENDING: "bg-orange-100 text-orange-800",
   OVERSELL_REFUND_FAILED: "bg-red-100 text-red-800",
   CANCELLED_REFUNDED: "bg-gray-100 text-gray-800",
+  CANCEL_REFUND_PENDING: "bg-orange-100 text-orange-800",
+  CANCEL_REFUND_FAILED: "bg-red-100 text-red-800",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -61,6 +70,8 @@ const STATUS_LABEL: Record<string, string> = {
   OVERSELL_REFUND_PENDING: "Refund Pending",
   OVERSELL_REFUND_FAILED: "Refund Failed",
   CANCELLED_REFUNDED: "Refunded",
+  CANCEL_REFUND_PENDING: "Cancelled — Refund Pending",
+  CANCEL_REFUND_FAILED: "Cancelled — Refund Failed",
 };
 
 export default async function AdminDashboard() {
@@ -78,10 +89,10 @@ export default async function AdminDashboard() {
             <div className="text-[20px]">⚠️</div>
             <div className="flex-1">
               <h3 className="font-bold text-red-900">
-                {oversellOrders.length} Order{oversellOrders.length !== 1 ? "s" : ""} with Failed Refunds
+                {oversellOrders.length} Order{oversellOrders.length !== 1 ? "s" : ""} with Refund Problems
               </h3>
               <p className="text-[13px] text-red-700 mt-1">
-                Immediate action required for oversold items.
+                A refund failed or is stuck. Open the order to retry it or record a manual refund made in Stripe.
               </p>
               <div className="mt-3 flex gap-2">
                 {oversellOrders.slice(0, 3).map((order) => (

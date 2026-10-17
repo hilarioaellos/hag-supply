@@ -50,6 +50,9 @@ type Lib = {
   emails: typeof import("@/lib/order-emails");
   templates: typeof import("@/lib/email-templates");
   cronGET: typeof import("@/app/api/cron/email-outbox/route").GET;
+  cancelAndRefund: typeof import("@/lib/order-cancel").cancelAndRefund;
+  markRefundedManually: typeof import("@/lib/order-cancel").markRefundedManually;
+  orderStatus: typeof import("@/lib/order-status");
 };
 
 // Secreto de firma SOLO para estas pruebas: los eventos se firman localmente con generateTestHeaderString.
@@ -97,6 +100,9 @@ async function main() {
     emails: await import("@/lib/order-emails"),
     templates: await import("@/lib/email-templates"),
     cronGET: (await import("@/app/api/cron/email-outbox/route")).GET,
+    cancelAndRefund: (await import("@/lib/order-cancel")).cancelAndRefund,
+    markRefundedManually: (await import("@/lib/order-cancel")).markRefundedManually,
+    orderStatus: await import("@/lib/order-status"),
   };
   const { db, stripe } = lib;
 
@@ -1679,6 +1685,400 @@ async function main() {
       assert.ok(ms < 1000 + 300, `tardó ${ms} ms`);
       assert.ok(counts.sent >= 1 && counts.sent <= 3, JSON.stringify(counts));
     });
+  });
+
+  console.log("\nCancelar y reembolsar desde el admin");
+
+  const ADMIN = { email: "admin@test.local", reason: "Cliente pidió cancelar" };
+  // Pedido pagado con un PaymentIntent ficticio: el stock ya está descontado (5 → 3) como lo dejaría confirmOrder.
+  const paidFakeOrder = async (tag: string, status: "PAYMENT_CONFIRMED" | "PROCESSING" | "SHIPPED" = "PAYMENT_CONFIRMED") => {
+    const user = await newUser();
+    const p = await mk(tag, 10, 3);
+    const order = await db.order.create({
+      data: {
+        orderNumber: `T-${tag}`, userId: user.id, buyerEmail: user.email, buyerName: user.name, subtotal: 20, total: 20, status,
+        stripePaymentIntentId: `pi_fake_${tag}`,
+        items: { create: [{ productId: p.id, productName: p.name, quantity: 2, unitPrice: 10, total: 20 }] },
+      },
+    });
+    return { order, product: p };
+  };
+  const emailsOf = (orderId: string, kind: "ORDER_CANCELLED" | "ORDER_REFUNDED" | "ORDER_CONFIRMATION") =>
+    db.emailOutbox.findMany({ where: { orderId, kind } });
+  // Cliente falso que respeta la idempotencia como Stripe: misma idempotencyKey → mismo refund (no se crea otro).
+  type RefundCounter = { calls: number; byKey: Map<string, string>; keys: string[] };
+  const newCounter = (): RefundCounter => ({ calls: 0, byKey: new Map(), keys: [] });
+  const refundClient = (orderId: string, status: string, counter: RefundCounter = newCounter()) =>
+    wrap({
+      refunds: {
+        list: async () => ({ data: [] }),
+        create: async (params: { metadata?: Record<string, string> }, options?: { idempotencyKey?: string }) => {
+          counter.calls++;
+          assert.equal(params.metadata?.orderId, orderId, "el refund lleva metadata.orderId");
+          const key = options?.idempotencyKey ?? `sin-clave-${counter.calls}`;
+          counter.keys.push(key);
+          if (!counter.byKey.has(key)) counter.byKey.set(key, `re_${orderId}_${counter.byKey.size + 1}`);
+          return refundObj(counter.byKey.get(key)!, status, orderId);
+        },
+        retrieve: async (id: string) => refundObj(id, status, orderId),
+      },
+    });
+
+  await test("cancelar pagado → refund con metadata.orderId, CANCELLED_REFUNDED, stock devuelto, quién/motivo; email de cancelación SIN afirmar emisión + email 'Refund issued' tras succeeded", async () => {
+    const { order, product } = await paidFakeOrder("CX1");
+    const counter = newCounter();
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded", counter)), "CANCELLED_REFUNDED");
+    const o = await orderOf(order.id);
+    assert.equal(o.status, "CANCELLED_REFUNDED");
+    assert.equal(o.stripeRefundId, `re_${order.id}_1`);
+    assert.equal(o.cancelledBy, "admin@test.local");
+    assert.equal(o.cancelReason, "Cliente pidió cancelar");
+    assert.ok(o.cancelledAt);
+    assert.equal(await stockOf(product.id), 5, "stock devuelto");
+    assert.deepEqual(counter.keys, [`refund-${order.id}`]);
+    const cancelled = await emailsOf(order.id, "ORDER_CANCELLED");
+    assert.equal(cancelled.length, 1);
+    assert.equal(cancelled[0].to, order.buyerEmail);
+    assert.match(cancelled[0].subject, /Order cancelled — T-CX1/);
+    assert.match(cancelled[0].text, /processing a full refund of \$20\.00/);
+    assert.doesNotMatch(cancelled[0].text + cancelled[0].html, /issued a full refund|We've issued/i, "no afirma un refund emitido");
+    const refunded = await emailsOf(order.id, "ORDER_REFUNDED");
+    assert.equal(refunded.length, 1);
+    assert.match(refunded[0].subject, /Refund issued — T-CX1/);
+    assert.match(refunded[0].text, /issued a full refund of \$20\.00/);
+  });
+
+  await test("PROCESSING también se puede cancelar", async () => {
+    const { order } = await paidFakeOrder("CX2", "PROCESSING");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+  });
+
+  await test("SHIPPED (o pendiente de pago) → NOT_CANCELLABLE: sin refund, sin stock, sin email", async () => {
+    const { order, product } = await paidFakeOrder("CX3", "SHIPPED");
+    const counter = newCounter();
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded", counter)), "NOT_CANCELLABLE");
+    assert.equal((await orderOf(order.id)).status, "SHIPPED");
+    assert.equal(await stockOf(product.id), 3);
+    assert.equal(counter.calls, 0);
+    assert.equal((await emailsOf(order.id, "ORDER_CANCELLED")).length, 0);
+    const pend = await oversellOrder("CX3B"); // PENDING_PAYMENT
+    assert.equal(await lib.cancelAndRefund(pend.id, ADMIN, refundClient(pend.id, "succeeded")), "NOT_CANCELLABLE");
+  });
+
+  await test("dos cancelaciones simultáneas → stock devuelto UNA vez, un email, UN refund (misma idempotencyKey)", async () => {
+    const { order, product } = await paidFakeOrder("CX4");
+    const counter = newCounter();
+    const client = refundClient(order.id, "succeeded", counter);
+    const results = await Promise.all([lib.cancelAndRefund(order.id, ADMIN, client), lib.cancelAndRefund(order.id, ADMIN, client)]);
+    assert.ok(results.every((r) => r === "CANCELLED_REFUNDED" || r === "ALREADY_DONE"), JSON.stringify(results));
+    assert.equal(counter.byKey.size, 1, "un solo refund distinto");
+    assert.ok(counter.keys.every((k) => k === `refund-${order.id}`), JSON.stringify(counter.keys));
+    assert.equal(await stockOf(product.id), 5);
+    assert.equal((await emailsOf(order.id, "ORDER_CANCELLED")).length, 1);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 1);
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, client), "ALREADY_DONE");
+  });
+
+  await test("error transitorio de Stripe → CANCEL_REFUND_PENDING sin email de 'Refund issued'; reintentar completa sin duplicar", async () => {
+    const { order, product } = await paidFakeOrder("CX5");
+    const flaky = wrap({ refunds: { list: async () => ({ data: [] }), create: async () => { throw new Error("ECONNRESET simulado"); } } });
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, flaky), "REFUND_ERROR");
+    assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_PENDING");
+    assert.equal(await stockOf(product.id), 5);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 0, "no se anuncia un refund que no existe");
+    const cancelled = await emailsOf(order.id, "ORDER_CANCELLED");
+    assert.equal(cancelled.length, 1);
+    assert.doesNotMatch(cancelled[0].text, /issued a full refund/);
+    assert.equal(await lib.cancelAndRefund(order.id, { email: "otro@test.local" }, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    const o = await orderOf(order.id);
+    assert.equal(o.status, "CANCELLED_REFUNDED");
+    assert.equal(o.cancelledBy, "admin@test.local", "el reintento no reescribe quién canceló");
+    assert.equal(await stockOf(product.id), 5, "el reintento no devuelve stock otra vez");
+    assert.equal((await emailsOf(order.id, "ORDER_CANCELLED")).length, 1);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 1);
+  });
+
+  await test("refund `pending` → CANCEL_REFUND_PENDING sin 'Refund issued'; el webhook refund.updated (succeeded) lo concluye y recién ahí avisa", async () => {
+    const { order } = await paidFakeOrder("CX6");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "pending")), "REFUND_PENDING");
+    assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_PENDING");
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 0);
+    const refundId = (await orderOf(order.id)).stripeRefundId!;
+    const later = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "succeeded", order.id) } });
+    const out = await lib.handleStripeEvent(evt("refund.updated", refundObj(refundId, "succeeded", order.id)), later);
+    assert.deepEqual(out, { action: "refund:CANCELLED_REFUNDED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 1);
+    // Evento duplicado: no repite el aviso.
+    await lib.handleStripeEvent(evt("refund.updated", refundObj(refundId, "succeeded", order.id)), later);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 1);
+  });
+
+  await test("refund `failed` → CANCEL_REFUND_FAILED con aviso de cancelación (no el de oversell) y sin 'Refund issued'", async () => {
+    const { order } = await paidFakeOrder("CX7");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "failed")), "CANCEL_REFUND_FAILED");
+    assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_FAILED");
+    const alert = await db.emailOutbox.findUnique({ where: { dedupeKey: `admin:cancel-refund-failed:${order.id}:re_${order.id}_1` } });
+    assert.ok(alert, "aviso de cancelación encolado");
+    assert.match(alert!.subject, /Cancellation refund failed/);
+    assert.equal(await db.emailOutbox.count({ where: { dedupeKey: { startsWith: `admin:refund-failed:${order.id}` } } }), 0);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 0);
+  });
+
+  await test("refund completado que luego falla (webhook) → CANCELLED_REFUNDED pasa a CANCEL_REFUND_FAILED", async () => {
+    const { order } = await paidFakeOrder("CX8");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    const refundId = (await orderOf(order.id)).stripeRefundId!;
+    const failed = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "failed", order.id) } });
+    const out = await lib.handleStripeEvent(evt("refund.failed", refundObj(refundId, "failed", order.id)), failed);
+    assert.deepEqual(out, { action: "refund:CANCEL_REFUND_FAILED", orderId: order.id });
+    assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_FAILED");
+  });
+
+  await test("oversell sigue igual: refund failed → OVERSELL_REFUND_FAILED con su aviso propio; succeeded no manda 'Refund issued'", async () => {
+    const order = await oversellOrder("CX9");
+    const client = wrap({ refunds: { list: async () => ({ data: [] }), create: async () => refundObj("re_CX9", "failed", order.id) } });
+    assert.equal(await lib.handleOversell(order.id, client), "OVERSELL_REFUND_FAILED");
+    assert.ok(await db.emailOutbox.findUnique({ where: { dedupeKey: `admin:refund-failed:${order.id}:re_CX9` } }));
+    const ok = await oversellOrder("CX9B");
+    const okClient = wrap({ refunds: { list: async () => ({ data: [] }), create: async () => refundObj("re_CX9B", "succeeded", ok.id) } });
+    assert.equal(await lib.handleOversell(ok.id, okClient), "CANCELLED_REFUNDED");
+    assert.equal((await emailsOf(ok.id, "ORDER_REFUNDED")).length, 0);
+  });
+
+  console.log("\nCancelar y reembolsar NO-GO v1 · P1 — cancelación contra cambio de estado manual");
+
+  await test("lectura desactualizada: PATCH leyó PROCESSING, la cancelación gana → el cambio a SHIPPED se rechaza (409) y el pedido sigue reembolsado", async () => {
+    const { order } = await paidFakeOrder("RCX1", "PROCESSING");
+    const staleFrom = (await orderOf(order.id)).status; // lo que leyó el PATCH
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    const r = await lib.orderStatus.applyStatusTransition(order.id, staleFrom, "SHIPPED");
+    assert.equal(r.ok, false);
+    assert.equal(!r.ok && r.code, 409);
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+  });
+
+  await test("lectura desactualizada PAYMENT_CONFIRMED → PROCESSING con la cancelación aún pendiente → 409; el refund puede concluir", async () => {
+    const { order } = await paidFakeOrder("RCX2");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "pending")), "REFUND_PENDING");
+    const r = await lib.orderStatus.applyStatusTransition(order.id, "PAYMENT_CONFIRMED", "PROCESSING");
+    assert.equal(!r.ok && r.code, 409);
+    assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_PENDING");
+    const refundId = (await orderOf(order.id)).stripeRefundId!;
+    const later = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "succeeded", order.id) } });
+    await lib.handleStripeEvent(evt("refund.updated", refundObj(refundId, "succeeded", order.id)), later);
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+  });
+
+  await test("el despacho gana primero → la cancelación es NOT_CANCELLABLE: sin refund, sin stock, sin email", async () => {
+    const { order, product } = await paidFakeOrder("RCX3", "PROCESSING");
+    const shipped = await lib.orderStatus.changeOrderStatus(order.id, "SHIPPED");
+    assert.equal(shipped.ok, true);
+    const counter = newCounter();
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded", counter)), "NOT_CANCELLABLE");
+    assert.equal((await orderOf(order.id)).status, "SHIPPED");
+    assert.equal(await stockOf(product.id), 3);
+    assert.equal(counter.calls, 0);
+    assert.equal((await emailsOf(order.id, "ORDER_CANCELLED")).length, 0);
+  });
+
+  await test("carrera real (10 rondas): despachar y cancelar a la vez → siempre gana uno y el otro no tiene efecto", async () => {
+    for (let i = 0; i < 10; i++) {
+      const { order, product } = await paidFakeOrder(`RCX4${i}`, "PROCESSING");
+      const counter = newCounter();
+      const [ship, cancel] = await Promise.all([
+        lib.orderStatus.changeOrderStatus(order.id, "SHIPPED"),
+        lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded", counter)),
+      ]);
+      const o = await orderOf(order.id);
+      if (o.status === "SHIPPED") {
+        assert.equal(ship.ok, true);
+        assert.equal(cancel, "NOT_CANCELLABLE");
+        assert.equal(o.cancelledAt, null);
+        assert.equal(await stockOf(product.id), 3);
+        assert.equal(counter.calls, 0);
+      } else {
+        assert.equal(o.status, "CANCELLED_REFUNDED", `ronda ${i}: ${o.status}`);
+        assert.equal(ship.ok, false);
+        assert.equal(await stockOf(product.id), 5);
+      }
+    }
+  });
+
+  console.log("\nCancelar y reembolsar NO-GO v1 · P2 — confirmación pendiente tras cancelar");
+
+  await test("confirmación con backoff → cancelación → al vencer el backoff NO se envía (queda CANCELLED)", async () => {
+    const { order } = await paidFakeOrder("PC1");
+    await db.emailOutbox.create({
+      data: {
+        dedupeKey: `order-confirmation:${order.id}`, kind: "ORDER_CONFIRMATION", orderId: order.id, to: order.buyerEmail,
+        subject: "Order confirmed", html: "x", text: "x", attempts: 1, lastError: "Resend: 503", nextAttemptAt: new Date(Date.now() + 60_000),
+      },
+    });
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    // "Vence" el backoff: aun si la fila volviera a estar vencida, no es elegible.
+    await db.emailOutbox.updateMany({ where: { orderId: order.id, kind: "ORDER_CONFIRMATION" }, data: { nextAttemptAt: new Date(0) } });
+    const { sent, sender } = fakeSender();
+    await lib.emails.deliverPending({ orderId: order.id, sender });
+    const conf = (await emailsOf(order.id, "ORDER_CONFIRMATION"))[0];
+    assert.equal(conf.status, "CANCELLED");
+    assert.ok(!sent.some((e) => e.subject === "Order confirmed"), "la confirmación no se envió");
+    assert.ok(sent.some((e) => /Order cancelled/.test(e.subject)), "la cancelación sí");
+  });
+
+  await test("confirmación en vuelo (SENDING) al cancelar: no se toca; si ese envío se cae y se retoma, se anula sin llamar al proveedor", async () => {
+    const { order } = await paidFakeOrder("PC2");
+    const row = await db.emailOutbox.create({
+      data: {
+        dedupeKey: `order-confirmation:${order.id}`, kind: "ORDER_CONFIRMATION", orderId: order.id, to: order.buyerEmail,
+        subject: "Order confirmed", html: "x", text: "x", status: "SENDING", attempts: 1, claimToken: "otro", lockedUntil: new Date(Date.now() + 60_000),
+      },
+    });
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    assert.equal((await db.emailOutbox.findUniqueOrThrow({ where: { id: row.id } })).status, "SENDING", "un envío en vuelo no se pisa");
+    // El proceso que la enviaba murió: el lock vence y otra ejecución la retoma.
+    await db.emailOutbox.update({ where: { id: row.id }, data: { lockedUntil: new Date(Date.now() - 1000) } });
+    const { sent, sender } = fakeSender();
+    assert.equal(await lib.emails.deliverEmail(row.id, sender), "cancelled");
+    assert.equal(sent.length, 0);
+    const after = await db.emailOutbox.findUniqueOrThrow({ where: { id: row.id } });
+    assert.equal(after.status, "CANCELLED");
+    assert.equal(after.attempts, 1, "no gasta intento");
+  });
+
+  console.log("\nCancelar y reembolsar NO-GO v1 · cierre de un reembolso fallido hecho a mano en Stripe");
+
+  const failedCancel = async (tag: string) => {
+    const { order } = await paidFakeOrder(tag);
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "failed")), "CANCEL_REFUND_FAILED");
+    return order;
+  };
+  const manualClient = (refund: Record<string, unknown>) => wrap({ refunds: { retrieve: async () => refund } });
+
+  await test("registrar refund manual: se verifica en Stripe (pago, estado, monto) y recién entonces CANCELLED_REFUNDED + 'Refund issued'", async () => {
+    const order = await failedCancel("MR1");
+    const base = { id: "re_manual1", object: "refund", payment_intent: order.stripePaymentIntentId, status: "succeeded", amount: 2000, metadata: {} };
+    const bad = [
+      [{ ...base, payment_intent: "pi_otro" }, /different payment/],
+      [{ ...base, status: "pending" }, /pending, not succeeded/],
+      [{ ...base, amount: 1500 }, /less than the order total/],
+    ] as const;
+    for (const [refund, msg] of bad) {
+      const r = await lib.markRefundedManually(order.id, "re_manual1", { email: "admin@test.local" }, manualClient(refund));
+      assert.equal(r.ok, false);
+      assert.match(!r.ok ? r.error : "", msg);
+      assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_FAILED");
+    }
+    assert.equal((await lib.markRefundedManually(order.id, "no-es-un-id", { email: "admin@test.local" }, manualClient(base))).ok, false);
+    const ok = await lib.markRefundedManually(order.id, "re_manual1", { email: "admin@test.local" }, manualClient(base));
+    assert.equal(ok.ok, true);
+    const o = await orderOf(order.id);
+    assert.equal(o.status, "CANCELLED_REFUNDED");
+    assert.equal(o.stripeRefundId, "re_manual1");
+    assert.match(o.notes ?? "", /Refund completed manually in Stripe \(re_manual1\) — recorded by admin@test\.local/);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 1);
+    const again = await lib.markRefundedManually(order.id, "re_manual1", { email: "admin@test.local" }, manualClient(base));
+    assert.equal(!again.ok && again.code, 409);
+  });
+
+  console.log("\nCancelar y reembolsar NO-GO v2 · aviso 'Refund issued' ligado al refund concreto");
+
+  const refundedRow = (orderId: string, refundId: string) =>
+    db.emailOutbox.findUnique({ where: { dedupeKey: `order-refunded:${orderId}:${refundId}` } });
+  const failA = async (orderId: string, refundId: string) => {
+    const failed = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "failed", orderId) } });
+    const out = await lib.handleStripeEvent(evt("refund.failed", refundObj(refundId, "failed", orderId)), failed);
+    assert.deepEqual(out, { action: "refund:CANCEL_REFUND_FAILED", orderId });
+  };
+  const manualB = (orderId: string, pi: string, id = "re_manualB") =>
+    manualClient({ id, object: "refund", payment_intent: pi, status: "succeeded", amount: 2000, metadata: {} });
+
+  await test("A succeeded con aviso pendiente → A falla → su aviso se anula y NO sale; B manual → aviso nuevo de B; repetir no duplica", async () => {
+    const { order } = await paidFakeOrder("NA1");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    const refundA = (await orderOf(order.id)).stripeRefundId!;
+    assert.equal((await refundedRow(order.id, refundA))?.status, "PENDING", "sin Resend en pruebas queda pendiente");
+
+    await failA(order.id, refundA);
+    assert.equal((await refundedRow(order.id, refundA))?.status, "CANCELLED", "el aviso de A ya no es cierto");
+    const s1 = fakeSender();
+    await lib.emails.deliverPending({ orderId: order.id, sender: s1.sender });
+    assert.ok(!s1.sent.some((e) => /Refund issued/.test(e.subject)), "no se anuncia el refund fallido");
+
+    const ok = await lib.markRefundedManually(order.id, "re_manualB", { email: "admin@test.local" }, manualB(order.id, order.stripePaymentIntentId!));
+    assert.equal(ok.ok, true);
+    assert.equal((await refundedRow(order.id, "re_manualB"))?.status, "PENDING", "aviso nuevo para B");
+    const s2 = fakeSender();
+    await lib.emails.deliverPending({ orderId: order.id, sender: s2.sender });
+    assert.equal(s2.sent.filter((e) => /Refund issued/.test(e.subject)).length, 1, "B se anuncia una vez");
+
+    // Repetir el cierre o recibir el evento de B no duplica.
+    const again = await lib.markRefundedManually(order.id, "re_manualB", { email: "admin@test.local" }, manualB(order.id, order.stripePaymentIntentId!));
+    assert.equal(!again.ok && again.code, 409);
+    const okB = wrap({ refunds: { retrieve: async (id: string) => refundObj(id, "succeeded", order.id) } });
+    await lib.handleStripeEvent(evt("refund.updated", refundObj("re_manualB", "succeeded", order.id)), okB);
+    assert.equal(await db.emailOutbox.count({ where: { orderId: order.id, kind: "ORDER_REFUNDED" } }), 2, "A (anulado) y B");
+    assert.equal((await orderOf(order.id)).status, "CANCELLED_REFUNDED");
+  });
+
+  await test("aviso de A agotado (FAILED) → A falla → queda anulado (no se puede reintentar); B manual genera su propio aviso", async () => {
+    const { order } = await paidFakeOrder("NA2");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    const refundA = (await orderOf(order.id)).stripeRefundId!;
+    await db.emailOutbox.update({ where: { dedupeKey: `order-refunded:${order.id}:${refundA}` }, data: { status: "FAILED", attempts: 8 } });
+    await failA(order.id, refundA);
+    const rowA = (await refundedRow(order.id, refundA))!;
+    assert.equal(rowA.status, "CANCELLED");
+    assert.equal(await lib.emails.requeueFailedEmail(rowA.id, "admin@test.local"), false, "Retry no lo revive");
+    assert.equal((await lib.markRefundedManually(order.id, "re_manualB2", { email: "admin@test.local" }, manualB(order.id, order.stripePaymentIntentId!, "re_manualB2"))).ok, true);
+    assert.equal((await refundedRow(order.id, "re_manualB2"))?.status, "PENDING");
+  });
+
+  await test("aviso de A en vuelo (SENDING) cuando A falla: no se pisa; si se retoma tras vencer el lock, se anula sin enviar", async () => {
+    const { order } = await paidFakeOrder("NA3");
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN, refundClient(order.id, "succeeded")), "CANCELLED_REFUNDED");
+    const refundA = (await orderOf(order.id)).stripeRefundId!;
+    const key = `order-refunded:${order.id}:${refundA}`;
+    await db.emailOutbox.update({ where: { dedupeKey: key }, data: { status: "SENDING", claimToken: "otro", lockedUntil: new Date(Date.now() + 60_000) } });
+    await failA(order.id, refundA);
+    assert.equal((await refundedRow(order.id, refundA))?.status, "SENDING", "un envío en vuelo no se pisa");
+    const row = await db.emailOutbox.update({ where: { dedupeKey: key }, data: { lockedUntil: new Date(Date.now() - 1000) } });
+    const { sent, sender } = fakeSender();
+    assert.equal(await lib.emails.deliverEmail(row.id, sender), "cancelled");
+    assert.equal(sent.length, 0);
+    assert.equal((await refundedRow(order.id, refundA))?.status, "CANCELLED");
+  });
+
+  await test("registrar refund manual: 'no existe' en Stripe → 422; caída o timeout de Stripe → 502 reintentable; el pedido no cambia", async () => {
+    const order = await failedCancel("MR2");
+    const missing = wrap({ refunds: { retrieve: async () => { throw Object.assign(new Error("No such refund"), { code: "resource_missing", statusCode: 404 }); } } });
+    const r1 = await lib.markRefundedManually(order.id, "re_nope", { email: "admin@test.local" }, missing);
+    assert.equal(!r1.ok && r1.code, 422);
+    assert.match(!r1.ok ? r1.error : "", /no refund with that ID/);
+    const down = wrap({ refunds: { retrieve: async () => { throw Object.assign(new Error("ETIMEDOUT"), { type: "StripeConnectionError" }); } } });
+    const r2 = await lib.markRefundedManually(order.id, "re_x1", { email: "admin@test.local" }, down);
+    assert.equal(!r2.ok && r2.code, 502);
+    assert.match(!r2.ok ? r2.error : "", /Try again/);
+    assert.equal((await orderOf(order.id)).status, "CANCEL_REFUND_FAILED");
+  });
+
+  await test("Stripe de prueba real: pedido pagado → dos cancelaciones simultáneas → UN refund real succeeded con metadata.orderId", async () => {
+    const { product, order } = await pendingWithPayment("CXR", 5);
+    await pay(order.stripePaymentIntentId!);
+    assert.equal((await lib.reconcileOrderPayment(order.id)).status, "PAYMENT_CONFIRMED");
+    assert.equal(await stockOf(product.id), 4);
+    const results = await Promise.all([lib.cancelAndRefund(order.id, ADMIN), lib.cancelAndRefund(order.id, ADMIN)]);
+    assert.ok(results.includes("CANCELLED_REFUNDED"), JSON.stringify(results));
+    assert.equal(await stockOf(product.id), 5);
+    const refunds = await refundsOf(order.stripePaymentIntentId!);
+    assert.equal(refunds.length, 1, "un solo refund real");
+    assert.equal(refunds[0].status, "succeeded");
+    assert.equal(refunds[0].metadata?.orderId, order.id);
+    assert.equal(refunds[0].amount, 2000);
+    assert.equal(await lib.cancelAndRefund(order.id, ADMIN), "ALREADY_DONE");
+    assert.equal((await refundsOf(order.stripePaymentIntentId!)).length, 1);
+    assert.equal((await emailsOf(order.id, "ORDER_REFUNDED")).length, 1);
   });
 
   console.log(`\n${passed} pruebas OK${skipped ? ` (${skipped} omitidas por TEST_ONLY)` : ""}${process.exitCode ? " — HAY FALLAS" : ""}`);

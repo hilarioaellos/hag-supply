@@ -34,6 +34,9 @@ enum OrderStatus {
   OVERSELL_REFUND_PENDING
   OVERSELL_REFUND_FAILED
   CANCELLED_REFUNDED
+  // Cancelación desde el admin de un pedido pagado y no despachado: reembolso en curso / fallido.
+  CANCEL_REFUND_PENDING
+  CANCEL_REFUND_FAILED
 }
 
 model User {
@@ -144,6 +147,10 @@ model Order {
   stripePaymentIntentId String?     @unique
   stripeRefundId        String?
   notes                 String?
+  // Cancelación desde el admin: distingue este flujo del reembolso por oversell (cancelledAt no nulo).
+  cancelledAt           DateTime?
+  cancelledBy           String?
+  cancelReason          String?
   createdAt             DateTime    @default(now())
   updatedAt             DateTime    @updatedAt
   items                 OrderItem[]
@@ -174,6 +181,8 @@ enum EmailKind {
   ORDER_CONFIRMATION
   ADMIN_ALERT
   ADMIN_NEW_ORDER
+  ORDER_CANCELLED
+  ORDER_REFUNDED
 }
 
 enum EmailStatus {
@@ -181,6 +190,8 @@ enum EmailStatus {
   SENDING
   SENT
   FAILED
+  // No se envía: el pedido se canceló antes de entregar su confirmación.
+  CANCELLED
 }
 
 // Bandeja de salida durable (HAG-103): cada email se registra en la misma transacción que el cambio de

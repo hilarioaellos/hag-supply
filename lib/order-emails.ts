@@ -3,7 +3,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { Resend } from "resend";
 import { db } from "@/lib/db";
-import { renderAdminAlert, renderNewOrderNotification, renderOrderConfirmation } from "@/lib/email-templates";
+import {
+  renderAdminAlert,
+  renderNewOrderNotification,
+  renderOrderCancelled,
+  renderOrderConfirmation,
+  renderRefundIssued,
+} from "@/lib/email-templates";
 
 // Emails transaccionales con bandeja de salida durable (HAG-103).
 //
@@ -30,7 +36,9 @@ export type OutgoingEmail = {
 };
 export type EmailSender = (email: OutgoingEmail) => Promise<{ id: string }>;
 // "deferred": no quedaba tiempo para un envío completo antes del deadline; la fila vuelve a PENDING sin gastar intento.
-export type DeliveryResult = "sent" | "retry" | "failed" | "not_configured" | "skipped" | "deferred";
+// "cancelled": el email dejó de corresponder al pedido antes de entregarlo (confirmación de un pedido cancelado,
+// aviso de un refund que falló o fue reemplazado); no se envía.
+export type DeliveryResult = "sent" | "retry" | "failed" | "not_configured" | "skipped" | "deferred" | "cancelled";
 
 export class EmailNotConfiguredError extends Error {}
 
@@ -113,6 +121,88 @@ export async function enqueueOrderEmails(tx: Tx, orderId: string): Promise<void>
   });
 }
 
+// Aviso de cancelación al comprador. Se llama dentro de la transacción que pasa la orden a
+// CANCEL_REFUND_PENDING: si la cancelación se confirma, el email existe; si se revierte, tampoco queda.
+export async function enqueueCancellationEmail(tx: Tx, orderId: string): Promise<void> {
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, include: { items: true } });
+  await tx.emailOutbox.createMany({
+    data: [
+      {
+        dedupeKey: `order-cancelled:${orderId}`,
+        kind: "ORDER_CANCELLED",
+        orderId,
+        to: order.buyerEmail,
+        ...renderOrderCancelled({
+          orderNumber: order.orderNumber,
+          orderId: order.id,
+          buyerName: order.buyerName,
+          items: order.items.map((i) => ({ name: i.productName, quantity: i.quantity })),
+          total: order.total.toFixed(2),
+        }),
+      },
+    ],
+    skipDuplicates: true,
+  });
+}
+
+// Reembolso emitido de una cancelación: solo cuando Stripe lo confirma (succeeded) o el admin registra un
+// refund manual verificado. Dentro de la transacción que pasa la orden a CANCELLED_REFUNDED.
+// La clave es por pedido Y refund: si el refund A falla después y se reemplaza por B, el aviso de B es un
+// hecho distinto (no lo descarta la deduplicación de A).
+const refundIssuedKey = (orderId: string, refundId: string) => `order-refunded:${orderId}:${refundId}`;
+
+export async function enqueueRefundIssuedEmail(tx: Tx, orderId: string, refundId: string): Promise<void> {
+  const order = await tx.order.findUniqueOrThrow({ where: { id: orderId } });
+  await tx.emailOutbox.createMany({
+    data: [
+      {
+        dedupeKey: refundIssuedKey(orderId, refundId),
+        kind: "ORDER_REFUNDED",
+        orderId,
+        to: order.buyerEmail,
+        ...renderRefundIssued({ orderNumber: order.orderNumber, orderId: order.id, buyerName: order.buyerName, total: order.total.toFixed(2) }),
+      },
+    ],
+    skipDuplicates: true,
+  });
+}
+
+// El refund `refundId` falló: su aviso "Refund issued" aún no enviado se anula (PENDING o FAILED). Una fila
+// en SENDING no se toca; si se retoma, deliverEmail comprueba que ese refund siga siendo el vigente.
+export async function cancelRefundIssuedEmail(tx: Tx, orderId: string, refundId: string): Promise<void> {
+  await tx.emailOutbox.updateMany({
+    where: { dedupeKey: refundIssuedKey(orderId, refundId), status: { in: ["PENDING", "FAILED"] } },
+    data: { status: "CANCELLED", lockedUntil: null, claimToken: null, lastError: "Refund failed before this notice was delivered" },
+  });
+}
+
+// Vigencia de un email ligado al estado del pedido, comprobada justo antes de enviarlo (también al retomar un
+// reintento o un reclamo vencido). Devuelve el motivo para anularlo, o null si sigue vigente.
+//   ORDER_CONFIRMATION → no se envía si el pedido se canceló.
+//   ORDER_REFUNDED     → solo si el pedido está CANCELLED_REFUNDED con ESE refund guardado (el de su clave).
+async function staleReason(email: { kind: string; orderId: string | null; dedupeKey: string }): Promise<string | null> {
+  if (!email.orderId || (email.kind !== "ORDER_CONFIRMATION" && email.kind !== "ORDER_REFUNDED")) return null;
+  const order = await db.order.findUnique({
+    where: { id: email.orderId },
+    select: { cancelledAt: true, status: true, stripeRefundId: true },
+  });
+  if (!order) return "Order not found";
+  if (email.kind === "ORDER_CONFIRMATION") return order.cancelledAt ? "Order cancelled before delivery" : null;
+  const refundId = email.dedupeKey.slice(`order-refunded:${email.orderId}:`.length);
+  const current = order.status === "CANCELLED_REFUNDED" && order.stripeRefundId === refundId;
+  return current ? null : "Refund no longer valid (failed or replaced) before this notice was delivered";
+}
+
+// Al cancelar: la confirmación del pedido que aún no salió ya no se envía (ni ahora ni en sus reintentos).
+// Una fila en SENDING no se toca aquí (puede estar en manos del proveedor); si ese intento falla, deliverEmail
+// la anula antes de reintentar porque comprueba la cancelación de la orden.
+export async function cancelPendingConfirmation(tx: Tx, orderId: string): Promise<void> {
+  await tx.emailOutbox.updateMany({
+    where: { orderId, kind: "ORDER_CONFIRMATION", status: { in: ["PENDING", "FAILED"] } },
+    data: { status: "CANCELLED", lockedUntil: null, claimToken: null, lastError: "Order cancelled before delivery" },
+  });
+}
+
 // Aviso al admin. dedupeKey identifica el hecho (p. ej. un refund concreto): repetirlo no genera otro email.
 export async function enqueueAdminAlert(
   tx: Tx | typeof db,
@@ -154,6 +244,17 @@ export async function deliverEmail(
   const owned = { id, status: "SENDING" as const, claimToken };
 
   const email = await db.emailOutbox.findUniqueOrThrow({ where: { id } });
+  // Email que ya no corresponde al estado del pedido (confirmación de un pedido cancelado, aviso de un refund
+  // que falló o fue reemplazado): no se envía, se anula sin gastar intento.
+  const stale = await staleReason(email);
+  if (stale) {
+    const voided = await db.emailOutbox.updateMany({
+      where: owned,
+      data: { status: "CANCELLED", attempts: { decrement: 1 }, lockedUntil: null, claimToken: null, lastError: stale },
+    });
+    if (voided.count !== 1) return lostClaim(email.dedupeKey, "cancelled");
+    return "cancelled";
+  }
   // HAG-122: el envío termina (o se corta) antes del deadline. Si la base tardó y ya no cabe un envío útil,
   // se libera el reclamo sin gastar intento y sin llamar al proveedor.
   if (deadline - Date.now() < minSendWindowMs()) {
@@ -270,7 +371,7 @@ function effectiveDeadline(deadlineAt = Infinity): number {
 export async function deliverPending(
   opts: { orderId?: string; limit?: number; sender?: EmailSender; budgetMs?: number } = {}
 ): Promise<Record<DeliveryResult, number>> {
-  const counts: Record<DeliveryResult, number> = { sent: 0, retry: 0, failed: 0, not_configured: 0, skipped: 0, deferred: 0 };
+  const counts: Record<DeliveryResult, number> = { sent: 0, retry: 0, failed: 0, not_configured: 0, skipped: 0, deferred: 0, cancelled: 0 };
   const deadline = effectiveDeadline(opts.budgetMs === undefined ? Infinity : Date.now() + opts.budgetMs);
   try {
     if (deadline - Date.now() < minSendWindowMs()) return counts;

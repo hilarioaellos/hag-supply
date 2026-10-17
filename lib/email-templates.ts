@@ -111,6 +111,63 @@ export function renderOrderConfirmation(d: ConfirmationEmailData): RenderedEmail
   return { subject: `Order confirmed — ${d.orderNumber}`, html: layout(`Order ${d.orderNumber}`, body), text };
 }
 
+// Cancelación desde el admin de un pedido pagado y no despachado: el reembolso ya se inició en Stripe.
+export type CancellationEmailData = {
+  orderNumber: string;
+  orderId: string;
+  buyerName: string;
+  items: { name: string; quantity: number }[];
+  total: string;
+};
+
+// Se encola al cancelar, antes de saber qué responde Stripe: confirma la cancelación y que el reembolso está
+// en gestión, sin afirmar que ya se emitió. La emisión la confirma renderRefundIssued.
+export function renderOrderCancelled(d: CancellationEmailData): RenderedEmail {
+  const orderUrl = `${storeUrl()}/order-confirmation/${d.orderId}`;
+  const firstName = d.buyerName.trim().split(/\s+/)[0] || "there";
+  const list = d.items.map((i) => `<li style="margin:0 0 4px;">${esc(i.name)} × ${i.quantity}</li>`).join("");
+  const body = `
+<h1 style="margin:0 0 12px;font-size:21px;">Your order was cancelled</h1>
+<p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi ${esc(firstName)}, your order <strong>${esc(d.orderNumber)}</strong> has been cancelled and will not be shipped.</p>
+<p style="margin:0 0 14px;font-size:15px;line-height:1.6;">We're processing a full refund of <strong>$${esc(d.total)}</strong> to your original payment method, and we'll email you as soon as it has been issued. You don't need to do anything.</p>
+<ul style="margin:0 0 16px;padding-left:20px;font-size:14px;line-height:1.5;color:#374151;">${list}</ul>
+<p style="margin:0;"><a href="${esc(orderUrl)}" style="color:${BRAND};font-size:14px;">View your order</a></p>`;
+  const text = [
+    `Hi ${firstName}, your order ${d.orderNumber} has been cancelled and will not be shipped.`,
+    "",
+    `We're processing a full refund of $${d.total} to your original payment method, and we'll email you as soon as it has been issued. You don't need to do anything.`,
+    "",
+    ...d.items.map((i) => `- ${i.name} × ${i.quantity}`),
+    "",
+    `View your order: ${orderUrl}`,
+    "",
+    "HAG Supply — A Division of HAG Partner LLC. Questions? Just reply to this email.",
+  ].join("\n");
+  return { subject: `Order cancelled — ${d.orderNumber}`, html: layout(`Order ${d.orderNumber} cancelled`, body), text };
+}
+
+// Se encola solo cuando Stripe confirma el refund (succeeded) de una cancelación, o cuando el admin registra un
+// refund manual verificado en Stripe.
+export function renderRefundIssued(d: { orderNumber: string; orderId: string; buyerName: string; total: string }): RenderedEmail {
+  const orderUrl = `${storeUrl()}/order-confirmation/${d.orderId}`;
+  const firstName = d.buyerName.trim().split(/\s+/)[0] || "there";
+  const body = `
+<h1 style="margin:0 0 12px;font-size:21px;">Your refund has been issued</h1>
+<p style="margin:0 0 14px;font-size:15px;line-height:1.6;">Hi ${esc(firstName)}, we've issued a full refund of <strong>$${esc(d.total)}</strong> for your cancelled order <strong>${esc(d.orderNumber)}</strong> to your original payment method.</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;">Depending on your bank, it usually appears on your statement within 5–10 business days.</p>
+<p style="margin:0;"><a href="${esc(orderUrl)}" style="color:${BRAND};font-size:14px;">View your order</a></p>`;
+  const text = [
+    `Hi ${firstName}, we've issued a full refund of $${d.total} for your cancelled order ${d.orderNumber} to your original payment method.`,
+    "",
+    "Depending on your bank, it usually appears on your statement within 5–10 business days.",
+    "",
+    `View your order: ${orderUrl}`,
+    "",
+    "HAG Supply — A Division of HAG Partner LLC. Questions? Just reply to this email.",
+  ].join("\n");
+  return { subject: `Refund issued — ${d.orderNumber}`, html: layout(`Refund for ${d.orderNumber}`, body), text };
+}
+
 export function renderAdminAlert(title: string, details: string, orderId?: string | null): RenderedEmail {
   const adminUrl = orderId ? `${storeUrl()}/admin/orders/${orderId}` : `${storeUrl()}/admin`;
   const body = `
